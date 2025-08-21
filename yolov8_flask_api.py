@@ -41,6 +41,7 @@ LABELS = {
 @app.route('/detect_base64', methods=['POST'])
 def detect_base64():
     try:
+        print("ok")
         data = request.get_json()
         if not data or 'image' not in data:
             return jsonify({'error': 'No image provided'}), 400
