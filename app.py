@@ -19,7 +19,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
-CORS(app)
+CORS(app, origins=["http://localhost:8081", "https://backend-ugfp.onrender.com"])
 
 # Global variables for models
 roboflow_client = None
@@ -33,15 +33,15 @@ ASSEMBLYAI_API_KEY = "9d46bf92cf684f81b9210bc5574f2580"
 ASSEMBLYAI_BASE_URL = "https://api.assemblyai.com"
 
 # Roboflow configuration
-# ROBOFLOW_API_KEY = "s9XwJDaT5rKwSn7ZyM5x"
+ROBOFLOW_API_KEY = "s9XwJDaT5rKwSn7ZyM5x"
 ROBOFLOW_WORKSPACE = "rich-9cfdj"
 ROBOFLOW_AGE_WORKFLOW_ID = "custom-workflow"
 ROBOFLOW_EMOTION_WORKFLOW_ID = "detect-and-classify"
 
-ROBOFLOW_API_KEY = os.environ.get("s9XwJDaT5rKwSn7ZyM5x")
+# ROBOFLOW_API_KEY = os.environ.get("s9XwJDaT5rKwSn7ZyM5x")
 
-if ROBOFLOW_API_KEY is None:
-    raise RuntimeError("Missing ROBOFLOW_API_KEY environment variable")
+# if ROBOFLOW_API_KEY is None:
+#     raise RuntimeError("Missing ROBOFLOW_API_KEY environment variable")
 
 # Model configuration - Based on actual training architecture
 GENDER_LABELS = ['Male', 'Female']  # gender_dict = {0:"Male", 1:"Female"}
