@@ -19,7 +19,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
-CORS(app, origins="*")
+CORS(app)
 
 # Global variables for models
 roboflow_client = None
