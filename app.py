@@ -38,7 +38,7 @@ ROBOFLOW_WORKSPACE = "rich-9cfdj"
 ROBOFLOW_AGE_WORKFLOW_ID = "custom-workflow"
 ROBOFLOW_EMOTION_WORKFLOW_ID = "detect-and-classify"
 
-ROBOFLOW_API_KEY = os.environ.get("ROBOFLOW_API_KEY")
+ROBOFLOW_API_KEY = os.environ.get("s9XwJDaT5rKwSn7ZyM5x")
 
 if ROBOFLOW_API_KEY is None:
     raise RuntimeError("Missing ROBOFLOW_API_KEY environment variable")
