@@ -9,7 +9,7 @@ from ultralytics import YOLO
 model = YOLO("yolov8_model.pt")  # replace with your actual model path (e.g., "runs/detect/train/weights/best.pt")
 
 app = Flask(__name__)
-CORS(app)  # Allow all origins — useful for Expo Go
+CORS(app, origins="http://localhost:8081")  # Allow all origins — useful for Expo Go
 
 # Label map if needed (e.g., class 0 is 'zoetrope')
 LABELS = {
