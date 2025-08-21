@@ -109,6 +109,11 @@ def load_models():
         )
         logger.info("Roboflow client initialized successfully")
         
+        globals()['yolo_model'] = yolo_model
+        globals()['face_cascade'] = face_cascade
+        globals()['emotion_model'] = emotion_model
+        globals()['roboflow_client'] = roboflow_client
+        
     except Exception as e:
         logger.error(f"Error loading models: {str(e)}")
         raise e
