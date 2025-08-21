@@ -26,6 +26,8 @@ roboflow_client = None
 emotion_model = None
 face_cascade = None
 
+
+
 # AssemblyAI configuration
 ASSEMBLYAI_API_KEY = "9d46bf92cf684f81b9210bc5574f2580"
 ASSEMBLYAI_BASE_URL = "https://api.assemblyai.com"
@@ -35,6 +37,11 @@ ROBOFLOW_API_KEY = "s9XwJDaT5rKwSn7ZyM5x"
 ROBOFLOW_WORKSPACE = "rich-9cfdj"
 ROBOFLOW_AGE_WORKFLOW_ID = "custom-workflow"
 ROBOFLOW_EMOTION_WORKFLOW_ID = "detect-and-classify"
+
+ROBOFLOW_API_KEY = os.environ.get("s9XwJDaT5rKwSn7ZyM5x", None)
+
+if ROBOFLOW_API_KEY is None:
+    raise RuntimeError("Missing ROBOFLOW_API_KEY environment variable")
 
 # Model configuration - Based on actual training architecture
 GENDER_LABELS = ['Male', 'Female']  # gender_dict = {0:"Male", 1:"Female"}
