@@ -19,7 +19,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
-CORS(app, origins=["http://localhost:8081", "https://backend-ugfp.onrender.com"])
+CORS(app, origins="*")
 
 # Global variables for models
 roboflow_client = None
