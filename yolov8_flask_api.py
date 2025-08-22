@@ -2,6 +2,7 @@ from flask import Flask, request, jsonify
 from flask_cors import CORS
 import base64
 import cv2
+import gc
 import numpy as np
 from ultralytics import YOLO
 
@@ -54,7 +55,7 @@ def detect_base64():
         
         if image is None:
             return jsonify({'error': 'Invalid image data'}), 400
-
+        image = cv2.resize(image, (640, 640))
         # TODO: Replace this mock detection with actual YOLO inference
         # For now, return a mock response for testing
         # Uncomment the lines below when you have your YOLO model ready:
@@ -64,6 +65,10 @@ def detect_base64():
             return jsonify({'exhibit': 'unknown'}), 200
         class_id = int(results.boxes.cls[0])
         exhibit = LABELS.get(class_id, 'unknown')
+
+         # Cleanup memory
+        del image, nparr, image_data
+        gc.collect()
 
         return jsonify({'exhibit': exhibit}), 200
 
