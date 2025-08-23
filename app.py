@@ -14,8 +14,8 @@ from inference_sdk import InferenceHTTPClient
 import tensorflow as tf
 from tensorflow import keras
 from dotenv import load_dotenv
-load_dotenv()
 
+load_dotenv()
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -28,34 +28,38 @@ CORS(app)
 roboflow_client = None
 emotion_model = None
 face_cascade = None
+roboflow_ready = False
 
 
+# AssemblyAI configuration
+ASSEMBLYAI_API_KEY = "9d46bf92cf684f81b9210bc5574f2580"
+ASSEMBLYAI_BASE_URL = "https://api.assemblyai.com"
 
-
+# Roboflow configuration
+# ROBOFLOW_API_KEY = "s9XwJDaT5rKwSn7ZyM5x"
+# ROBOFLOW_WORKSPACE = "rich-9cfdj"
+# ROBOFLOW_AGE_WORKFLOW_ID = "custom-workflow"
+# ROBOFLOW_EMOTION_WORKFLOW_ID = "detect-and-classify"
 
 # Model configuration - Based on actual training architecture
 GENDER_LABELS = ['Male', 'Female']  # gender_dict = {0:"Male", 1:"Female"}
 
 # Emotion labels - Updated to match the provided model
 EMOTION_LABELS = ['Angry', 'Disgust', 'Fear', 'Happy', 'Neutral', 'Sad', 'Surprise']
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 def load_models():
-    ROBOFLOW_API_KEY = os.getenv("ROBOFLOW_API_KEY")
-    ROBOFLOW_WORKSPACE = os.getenv("ROBOFLOW_WORKSPACE")
-    ROBOFLOW_AGE_WORKFLOW_ID = os.getenv("ROBOFLOW_AGE_WORKFLOW_ID")
-    ROBOFLOW_EMOTION_WORKFLOW_ID = os.getenv("ROBOFLOW_EMOTION_WORKFLOW_ID")
-    ASSEMBLYAI_API_KEY = os.getenv("ASSEMBLYAI_API_KEY")
-    ASSEMBLYAI_BASE_URL = os.getenv("ASSEMBLYAI_BASE_URL")
-
-    if not ROBOFLOW_API_KEY:
-        app.logger.error("ROBOFLOW_API_KEY is missing. Check your .env file.")
     """Initialize Roboflow client, load local emotion model and face detection cascade on startup"""
-    global roboflow_client, emotion_model, face_cascade
+    global roboflow_client, emotion_model, face_cascade, roboflow_ready
+
+    api_key = os.getenv("ROBOFLOW_API_KEY")
+    workspace = os.getenv("ROBOFLOW_WORKSPACE")
+    age_workflow = os.getenv("ROBOFLOW_AGE_WORKFLOW_ID", "custom-workflow")
     
     try:
         # Load Haar cascade for face detection
         logger.info("Loading Haar cascade for face detection...")
-        cascade_path = os.path.join('asset', 'haarcascade_frontalface_default.xml')
+        cascade_path = os.path.join(BASE_DIR, 'asset', 'haarcascade_frontalface_default.xml')
         if os.path.exists(cascade_path):
             face_cascade = cv2.CascadeClassifier(cascade_path)
             logger.info("Face detection cascade loaded successfully")
@@ -64,7 +68,7 @@ def load_models():
             
         # Load local emotion model
         logger.info("Loading local emotion model...")
-        emotion_model_path = os.path.join('asset', 'emotion_model.h5')
+        emotion_model_path = os.path.join(BASE_DIR, 'asset', 'emotion_model.h5')
         if os.path.exists(emotion_model_path):
             emotion_model = keras.models.load_model(emotion_model_path)
             logger.info("Local emotion model loaded successfully")
@@ -72,12 +76,34 @@ def load_models():
             logger.error(f"Emotion model not found at {emotion_model_path}")
             
         # Initialize Roboflow client for age prediction
-        logger.info("Initializing Roboflow client for age prediction...")
-        roboflow_client = InferenceHTTPClient(
-            api_url="https://serverless.roboflow.com",
-            api_key="s9XwJDaT5rKwSn7ZyM5x"
-        )
-        logger.info("Roboflow client initialized successfully")
+        # logger.info("Initializing Roboflow client for age prediction...")
+        # roboflow_client = InferenceHTTPClient(
+        #     api_url="https://serverless.roboflow.com",
+        #     api_key=ROBOFLOW_API_KEY
+        # )
+        # logger.info("Roboflow client initialized successfully")
+        if api_key and workspace:
+            try:
+                roboflow_client = InferenceHTTPClient(
+                    api_url="https://serverless.roboflow.com",
+                    api_key=api_key
+                )
+                # test connectivity (cheap call)
+                roboflow_client.run_workflow(
+                    workspace_name=workspace,
+                    workflow_id=age_workflow,
+                    images={},  # empty run just to validate
+                    use_cache=True
+                )
+                roboflow_ready = True
+                logger.info("✅ Roboflow client initialized and verified")
+            except Exception as e:
+                logger.error(f"❌ Failed to init Roboflow: {e}")
+                roboflow_ready = False
+        else:
+            logger.warning("⚠️ No Roboflow API key/workspace found")
+            roboflow_ready = False
+
         
     except Exception as e:
         logger.error(f"Error loading models: {str(e)}")
@@ -508,7 +534,7 @@ def health_check():
     return jsonify({
         'status': 'healthy',
         'models_loaded': {
-            'roboflow': roboflow_client is not None,
+            'roboflow': roboflow_ready,
             'assemblyai': True,  # AssemblyAI is API-based, no local model needed
             'emotion_model': emotion_model is not None,
             'face_cascade': face_cascade is not None
@@ -818,4 +844,4 @@ if __name__ == '__main__':
     load_models()
     
     # Run the Flask app
-    app.run(host='0.0.0.0', port=5000, debug=True)
+    app.run(host='0.0.0.0', port=5001, debug=False)
