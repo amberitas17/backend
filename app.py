@@ -55,25 +55,22 @@ def load_models():
     api_key = os.getenv("ROBOFLOW_API_KEY")
     workspace = os.getenv("ROBOFLOW_WORKSPACE")
     age_workflow = os.getenv("ROBOFLOW_AGE_WORKFLOW_ID", "custom-workflow")
+    emotion_workflow = os.getenv("ROBOFLOW_EMOTION_WORKFLOW_ID", "detect-and-classify")
     
     try:
         # Load Haar cascade for face detection
         logger.info("Loading Haar cascade for face detection...")
-        cascade_path = os.path.join(BASE_DIR, 'asset', 'haarcascade_frontalface_default.xml')
-        if os.path.exists(cascade_path):
+        if face_cascade is None:
+            cascade_path = os.path.join(BASE_DIR, 'asset', 'haarcascade_frontalface_default.xml')
             face_cascade = cv2.CascadeClassifier(cascade_path)
             logger.info("Face detection cascade loaded successfully")
-        else:
-            logger.error(f"Haar cascade not found at {cascade_path}")
             
         # Load local emotion model
         logger.info("Loading local emotion model...")
-        emotion_model_path = os.path.join(BASE_DIR, 'asset', 'emotion_model.h5')
-        if os.path.exists(emotion_model_path):
+        if emotion_model is None:
+            emotion_model_path = os.path.join(BASE_DIR, 'asset', 'emotion_model.h5')
             emotion_model = keras.models.load_model(emotion_model_path)
             logger.info("Local emotion model loaded successfully")
-        else:
-            logger.error(f"Emotion model not found at {emotion_model_path}")
             
         # Initialize Roboflow client for age prediction
         # logger.info("Initializing Roboflow client for age prediction...")
@@ -82,36 +79,40 @@ def load_models():
         #     api_key=ROBOFLOW_API_KEY
         # )
         # logger.info("Roboflow client initialized successfully")
-        if api_key and workspace:
-            try:
-                roboflow_client = InferenceHTTPClient(
-                    api_url="https://serverless.roboflow.com",
-                    api_key=api_key
-                )
-                # test connectivity (cheap call)
-                roboflow_client.run_workflow(
-                    workspace_name=workspace,
-                    workflow_id=age_workflow,
-                    images={},  # empty run just to validate
-                    use_cache=True
-                )
-                roboflow_ready = True
-                logger.info("✅ Roboflow client initialized and verified")
-            except Exception as e:
-                logger.error(f"❌ Failed to init Roboflow: {e}")
+        if roboflow_client is None:
+            if api_key and workspace:
+                try:
+                    roboflow_client = InferenceHTTPClient(
+                        api_url="https://serverless.roboflow.com",
+                        api_key=api_key
+                    )
+                    # test connectivity (cheap call)
+                    # roboflow_client.run_workflow(
+                    #     workspace_name=workspace,
+                    #     workflow_id=age_workflow,
+                    #     images={},  # empty run just to validate
+                    #     use_cache=True
+                    # )
+                    roboflow_ready = True
+                    logger.info("✅ Roboflow client initialized and verified")
+                except Exception as e:
+                    logger.error(f"❌ Failed to init Roboflow: {e}")
+                    roboflow_ready = False
+            else:
+                logger.warning("⚠️ No Roboflow API key/workspace found")
                 roboflow_ready = False
-        else:
-            logger.warning("⚠️ No Roboflow API key/workspace found")
-            roboflow_ready = False
 
         
     except Exception as e:
         logger.error(f"Error loading models: {str(e)}")
         raise e
 
-def predict_age_with_roboflow(image_base64):
+def predict_age_with_roboflow(image_base64: str):
     """Predict age using Roboflow API"""
     try:
+        workspace = os.getenv("ROBOFLOW_WORKSPACE")
+        age_workflow = os.getenv("ROBOFLOW_AGE_WORKFLOW_ID", "custom-workflow")
+        emotion_workflow = os.getenv("ROBOFLOW_EMOTION_WORKFLOW_ID", "detect-and-classify")
         logger.info("Predicting age with Roboflow...")
         
         # Save image temporarily for Roboflow
@@ -127,8 +128,8 @@ def predict_age_with_roboflow(image_base64):
         
         # Run Roboflow age classification workflow
         result = roboflow_client.run_workflow(
-            workspace_name=ROBOFLOW_WORKSPACE,
-            workflow_id=ROBOFLOW_AGE_WORKFLOW_ID,
+            workspace_name=workspace,
+            workflow_id=age_workflow,
             images={
                 "image": temp_image_path
             },
@@ -191,9 +192,12 @@ def predict_age_with_roboflow(image_base64):
         }
 
 # DEPRECATED: Using local emotion model instead
-def predict_emotion_with_roboflow(image_base64):
+def predict_emotion_with_roboflow(image_base64: str):
     """DEPRECATED: Predict emotion using Roboflow facial emotion detection API"""
     try:
+        workspace = os.getenv("ROBOFLOW_WORKSPACE")
+        age_workflow = os.getenv("ROBOFLOW_AGE_WORKFLOW_ID", "custom-workflow")
+        emotion_workflow = os.getenv("ROBOFLOW_EMOTION_WORKFLOW_ID", "detect-and-classify")
         logger.info("Predicting emotion with Roboflow...")
         
         # Save image temporarily for Roboflow
@@ -209,10 +213,13 @@ def predict_emotion_with_roboflow(image_base64):
         
         # Run Roboflow emotion detection workflow
         result = roboflow_client.run_workflow(
-            workspace_name=ROBOFLOW_WORKSPACE,
-            workflow_id=ROBOFLOW_EMOTION_WORKFLOW_ID,
+            workspace_name=workspace,
+            workflow_id=emotion_workflow,
             images={
-                "image": temp_image_path
+                "image": {
+                    "type": "base64",
+                    "value": image_base64
+                }
             },
             use_cache=True
         )
