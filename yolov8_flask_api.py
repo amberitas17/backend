@@ -14,9 +14,6 @@ model = YOLO("yolov8_model.pt")  # replace with your actual model path (e.g., "r
 app = Flask(__name__)
 CORS(app, origins="http://localhost:8081")  # Allow all origins — useful for Expo Go
 
-start = time.time()
-results = model(image)[0]
-print("YOLO inference took", time.time() - start, "seconds")
 # Label map if needed (e.g., class 0 is 'zoetrope')
 LABELS = {
     0: 'climate_changed',
