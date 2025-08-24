@@ -642,7 +642,7 @@ def health_check():
         'models_loaded': {
             'roboflow': roboflow_ready,
             'assemblyai': True,  # AssemblyAI is API-based, no local model needed
-            'emotion_model': emotion_model is not None,
+            'emotion_model': emotion_interpreter is not None,
             'face_cascade': face_cascade is not None
         }
     })
