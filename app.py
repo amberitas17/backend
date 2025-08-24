@@ -136,8 +136,8 @@ def predict_age_with_roboflow(image_base64: str):
             image_base64 = image_base64.split(',')[1]
         
         # image_data = base64.b64decode(image_base64)
-        with open(temp_image_path, 'wb') as f:
-            f.write(image_data)
+        # with open(temp_image_path, 'wb') as f:
+        #     f.write(image_data)
         
         # Run Roboflow age classification workflow
         result = roboflow_client.run_workflow(
