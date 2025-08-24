@@ -642,7 +642,7 @@ def health_check():
         'models_loaded': {
             'roboflow': roboflow_ready,
             'assemblyai': True,  # AssemblyAI is API-based, no local model needed
-            'emotion_model': emotion_interpreter is not None,
+            'emotion_interpreter': emotion_interpreter is not None,
             'face_cascade': face_cascade is not None
         }
     })
@@ -660,7 +660,7 @@ def predict_combined():
             logger.error("Roboflow client not initialized")
             return jsonify({'error': 'Roboflow client not initialized'}), 500
             
-        if emotion_model is None:
+        if emotion_interpreter is None:
             logger.error("Local emotion model not loaded")
             return jsonify({'error': 'Local emotion model not loaded'}), 500
         
