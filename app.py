@@ -143,20 +143,20 @@ def predict_age_with_roboflow(image_base64: str):
         result = roboflow_client.run_workflow(
             workspace_name=workspace,
             workflow_id=age_workflow,
-            images={
-                "image": {
+            images=[
+                {
                     "type": "base64",
                     "value": image_base64
                 }
-            },
+            ],
             use_cache=True
         )
         
         # Clean up temp file
-        try:
-            os.remove(temp_image_path)
-        except:
-            pass
+        # try:
+        #     os.remove(temp_image_path)
+        # except:
+        #     pass
         
         # Process Roboflow response
         if result and len(result) > 0:
