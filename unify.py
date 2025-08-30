@@ -15,6 +15,7 @@ import tensorflow as tf
 from tensorflow import keras
 from ultralytics import YOLO
 from dotenv import load_dotenv
+import onnxruntime as ort
 
 load_dotenv()
 
@@ -100,8 +101,17 @@ def load_models():
         #     logger.warning(f"YOLO model not found at {yolo_model_path}")
         yolo_model_path = os.path.join(os.path.dirname(__file__), "yolov8_model.onnx")
         if os.path.exists(yolo_model_path):
-            yolo_model = YOLO(yolo_model_path)
-            logger.info(f"YOLO model loaded successfully from {yolo_model_path}")
+            so = ort.SessionOptions()
+            so.enable_cpu_mem_arena = False   # reduce memory fragmentation
+            so.enable_mem_pattern = False
+            so.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_BASIC
+
+            yolo_model = ort.InferenceSession(
+                yolo_model_path,
+                providers=["CPUExecutionProvider"],
+                sess_options=so
+            )
+            print("YOLO ONNX loaded safely")
         else:
             logger.warning(f"YOLO model not found at {yolo_model_path}")
         # Load Haar cascade for face detection
@@ -262,8 +272,55 @@ def decode_base64_image(base64_string):
 #     except Exception as e:
 #         logger.error(f"Error in YOLO exhibit detection: {str(e)}")
 #         return {'exhibit': 'unknown', 'confidence': 0.0, 'error': str(e)}
+# def detect_exhibit_yolo(image):
+#     """Detect exhibit using YOLO model (.pt or .onnx via Ultralytics)"""
+#     try:
+#         if yolo_model is None:
+#             logger.error("YOLO model not loaded")
+#             return {'exhibit': 'unknown', 'confidence': 0.0, 'error': 'YOLO model not loaded'}
+
+#         # Validate input
+#         if image is None or not isinstance(image, np.ndarray):
+#             return {'exhibit': 'unknown', 'confidence': 0.0, 'error': 'Invalid image input'}
+
+#         # Run YOLO inference
+#         results = yolo_model(image)[0]
+
+#         if not hasattr(results, "boxes") or results.boxes is None or len(results.boxes.cls) == 0:
+#             return {'exhibit': 'unknown', 'confidence': 0.0}
+
+#         # Extract detections
+#         confidences = results.boxes.conf.cpu().numpy()
+#         classes = results.boxes.cls.cpu().numpy()
+
+#         best_idx = np.argmax(confidences)
+#         class_id = int(classes[best_idx])
+#         confidence = float(confidences[best_idx])
+
+#         exhibit = EXHIBIT_LABELS.get(class_id, 'unknown')
+
+#         logger.info(f"YOLO detected exhibit: {exhibit} with confidence {confidence:.3f}")
+
+#         return {
+#             'exhibit': exhibit,
+#             'confidence': confidence,
+#             'class_id': class_id,
+#             'all_detections': [
+#                 {
+#                     'exhibit': EXHIBIT_LABELS.get(int(cls), 'unknown'),
+#                     'confidence': float(conf),
+#                     'class_id': int(cls)
+#                 }
+#                 for cls, conf in zip(classes, confidences)
+#             ]
+#         }
+
+#     except Exception as e:
+#         logger.error(f"Error in YOLO exhibit detection: {str(e)}")
+#         return {'exhibit': 'unknown', 'confidence': 0.0, 'error': str(e)}
+
 def detect_exhibit_yolo(image):
-    """Detect exhibit using YOLO model (.pt or .onnx via Ultralytics)"""
+    """Detect exhibit using YOLO ONNX model (onnxruntime)."""
     try:
         if yolo_model is None:
             logger.error("YOLO model not loaded")
@@ -273,20 +330,40 @@ def detect_exhibit_yolo(image):
         if image is None or not isinstance(image, np.ndarray):
             return {'exhibit': 'unknown', 'confidence': 0.0, 'error': 'Invalid image input'}
 
-        # Run YOLO inference
-        results = yolo_model(image)[0]
+        # --------------------
+        # Preprocess
+        # --------------------
+        img = cv2.resize(image, (320, 320))   # 👈 keep small for memory
+        img = img[:, :, ::-1]                 # BGR → RGB
+        img = img.transpose(2, 0, 1)          # HWC → CHW
+        img = np.expand_dims(img, axis=0).astype(np.float32) / 255.0
 
-        if not hasattr(results, "boxes") or results.boxes is None or len(results.boxes.cls) == 0:
+        # --------------------
+        # Inference
+        # --------------------
+        input_name = yolo_session.get_inputs()[0].name
+        outputs = yolo_session.run(None, {input_name: img})
+
+        # YOLOv8 ONNX usually returns a single array: (batch, num_dets, 85)
+        preds = outputs[0][0]
+
+        # --------------------
+        # Postprocess
+        # --------------------
+        boxes, confidences, classes = [], [], []
+        for det in preds:
+            x0, y0, x1, y1, conf, cls = det[:4], det[4], det[5:].argmax()
+            if conf > 0.3:  # confidence threshold
+                boxes.append(x0)  # we don’t need boxes if just classification
+                confidences.append(float(conf))
+                classes.append(int(cls))
+
+        if not classes:
             return {'exhibit': 'unknown', 'confidence': 0.0}
 
-        # Extract detections
-        confidences = results.boxes.conf.cpu().numpy()
-        classes = results.boxes.cls.cpu().numpy()
-
-        best_idx = np.argmax(confidences)
-        class_id = int(classes[best_idx])
-        confidence = float(confidences[best_idx])
-
+        best_idx = int(np.argmax(confidences))
+        class_id = classes[best_idx]
+        confidence = confidences[best_idx]
         exhibit = EXHIBIT_LABELS.get(class_id, 'unknown')
 
         logger.info(f"YOLO detected exhibit: {exhibit} with confidence {confidence:.3f}")
@@ -297,11 +374,11 @@ def detect_exhibit_yolo(image):
             'class_id': class_id,
             'all_detections': [
                 {
-                    'exhibit': EXHIBIT_LABELS.get(int(cls), 'unknown'),
-                    'confidence': float(conf),
-                    'class_id': int(cls)
+                    'exhibit': EXHIBIT_LABELS.get(c, 'unknown'),
+                    'confidence': conf,
+                    'class_id': c
                 }
-                for cls, conf in zip(classes, confidences)
+                for c, conf in zip(classes, confidences)
             ]
         }
 
