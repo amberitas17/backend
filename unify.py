@@ -47,30 +47,34 @@ GENDER_LABELS = ['Male', 'Female']
 EMOTION_LABELS = ['Angry', 'Disgust', 'Fear', 'Happy', 'Neutral', 'Sad', 'Surprise']
 
 # YOLO exhibit labels
+# EXHIBIT_LABELS = {
+#     0: 'climate_changed',
+#     1: 'dialogue_with_time',
+#     2: 'e3',
+#     3: 'earth_alive',
+#     4: 'ecogarden',
+#     5: 'energy',
+#     6: 'everyday_science',
+#     7: 'future_makers',
+#     8: 'going_viral',
+#     9: 'kinetic_garden',
+#     10: 'know_your_poo',
+#     11: 'laser_maze',
+#     12: 'phobia2',
+#     13: 'mirror_maze',
+#     14: 'savage_garden',
+#     15: 'singapore_innovations',
+#     16: 'smart_nation',
+#     17: 'some_call_it_science',
+#     18: 'giant_zoetrope',
+#     19: 'minds_eye',
+#     20: 'tinkering_studio',
+#     21: 'urban_mutations',
+#     22: 'waterworks'
+# }
 EXHIBIT_LABELS = {
-    0: 'climate_changed',
-    1: 'dialogue_with_time',
-    2: 'e3',
-    3: 'earth_alive',
-    4: 'ecogarden',
-    5: 'energy',
-    6: 'everyday_science',
-    7: 'future_makers',
-    8: 'going_viral',
-    9: 'kinetic_garden',
-    10: 'know_your_poo',
-    11: 'laser_maze',
-    12: 'phobia2',
-    13: 'mirror_maze',
-    14: 'savage_garden',
-    15: 'singapore_innovations',
-    16: 'smart_nation',
-    17: 'some_call_it_science',
-    18: 'giant_zoetrope',
-    19: 'minds_eye',
-    20: 'tinkering_studio',
-    21: 'urban_mutations',
-    22: 'waterworks'
+    0: 'dialogue_with_time',
+    1: 'earth_alive',
 }
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -80,9 +84,13 @@ emotion_interpreter = None
 emotion_input_details = None
 emotion_output_details = None
 
+yolo_interpreter = None
+yolo_input_details = None
+yolo_output_details = None
+
 def load_models():
     """Initialize all models on startup"""
-    global roboflow_client, emotion_interpreter, emotion_input_details, emotion_output_details, face_cascade, yolo_model
+    global yolo_interpreter, yolo_input_details, yolo_output_details, emotion_interpreter, emotion_input_details, emotion_output_details, face_cascade, roboflow_client
     
     api_key = os.getenv("ROBOFLOW_API_KEY")
     workspace = os.getenv("ROBOFLOW_WORKSPACE")
@@ -99,21 +107,15 @@ def load_models():
         #     logger.info("YOLO model loaded successfully")
         # else:
         #     logger.warning(f"YOLO model not found at {yolo_model_path}")
-        yolo_model_path = os.path.join(os.path.dirname(__file__), "yolov8_model.onnx")
+        yolo_model_path = os.path.join(BASE_DIR, "yolov8_model.tflite")
         if os.path.exists(yolo_model_path):
-            so = ort.SessionOptions()
-            so.enable_cpu_mem_arena = False   # reduce memory fragmentation
-            so.enable_mem_pattern = False
-            so.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_BASIC
-
-            yolo_model = ort.InferenceSession(
-                yolo_model_path,
-                providers=["CPUExecutionProvider"],
-                sess_options=so
-            )
-            print("YOLO ONNX loaded safely")
+            yolo_interpreter = tf.lite.Interpreter(model_path=yolo_model_path)
+            yolo_interpreter.allocate_tensors()
+            yolo_input_details = yolo_interpreter.get_input_details()
+            yolo_output_details = yolo_interpreter.get_output_details()
+            logger.info("YOLO TFLite model loaded successfully")
         else:
-            logger.warning(f"YOLO model not found at {yolo_model_path}")
+            logger.warning(f"YOLO TFLite model not found at {yolo_model_path}")
         # Load Haar cascade for face detection
         logger.info("Loading Haar cascade for face detection...")
         cascade_path = os.path.join('asset', 'haarcascade_frontalface_default.xml')
@@ -320,43 +322,35 @@ def decode_base64_image(base64_string):
 #         return {'exhibit': 'unknown', 'confidence': 0.0, 'error': str(e)}
 
 def detect_exhibit_yolo(image):
-    """Detect exhibit using YOLO ONNX model (onnxruntime)."""
+    """Detect exhibit using YOLO TFLite model"""
+    global yolo_interpreter, yolo_input_details, yolo_output_details
+
     try:
-        if yolo_model is None:
-            logger.error("YOLO model not loaded")
+        if yolo_interpreter is None:
+            logger.error("YOLO TFLite model not loaded")
             return {'exhibit': 'unknown', 'confidence': 0.0, 'error': 'YOLO model not loaded'}
 
-        # Validate input
-        if image is None or not isinstance(image, np.ndarray):
-            return {'exhibit': 'unknown', 'confidence': 0.0, 'error': 'Invalid image input'}
-
-        # --------------------
-        # Preprocess
-        # --------------------
-        img = cv2.resize(image, (320, 320))   # 👈 keep small for memory
+        # Preprocess image
+        img = cv2.resize(image, (320, 320))  # adjust input size to TFLite model
         img = img[:, :, ::-1]                 # BGR → RGB
-        img = img.transpose(2, 0, 1)          # HWC → CHW
-        img = np.expand_dims(img, axis=0).astype(np.float32) / 255.0
+        img = np.expand_dims(img.astype(np.float32) / 255.0, axis=0)
 
-        # --------------------
-        # Inference
-        # --------------------
-        input_name = yolo_model.get_inputs()[0].name
-        outputs = yolo_model.run(None, {input_name: img})
+        # Set input tensor
+        yolo_interpreter.set_tensor(yolo_input_details[0]['index'], img)
+        yolo_interpreter.invoke()
 
-        # YOLOv8 ONNX usually returns a single array: (batch, num_dets, 85)
-        preds = outputs[0][0]
+        # Get output
+        preds = yolo_interpreter.get_tensor(yolo_output_details[0]['index'])[0]  # shape: (num_detections, 85)
 
-        # --------------------
-        # Postprocess
-        # --------------------
         boxes, confidences, classes = [], [], []
         for det in preds:
-            x0, y0, x1, y1, conf, cls = det[:4], det[4], det[5:].argmax()
-            if conf > 0.3:  # confidence threshold
-                boxes.append(x0)  # we don’t need boxes if just classification
+            x0, y0, x1, y1 = det[:4]
+            conf = det[4]
+            cls = int(np.argmax(det[5:]))
+            if conf > 0.3:
+                boxes.append([x0, y0, x1, y1])
                 confidences.append(float(conf))
-                classes.append(int(cls))
+                classes.append(cls)
 
         if not classes:
             return {'exhibit': 'unknown', 'confidence': 0.0}
@@ -365,8 +359,6 @@ def detect_exhibit_yolo(image):
         class_id = classes[best_idx]
         confidence = confidences[best_idx]
         exhibit = EXHIBIT_LABELS.get(class_id, 'unknown')
-
-        logger.info(f"YOLO detected exhibit: {exhibit} with confidence {confidence:.3f}")
 
         return {
             'exhibit': exhibit,
@@ -377,13 +369,12 @@ def detect_exhibit_yolo(image):
                     'exhibit': EXHIBIT_LABELS.get(c, 'unknown'),
                     'confidence': conf,
                     'class_id': c
-                }
-                for c, conf in zip(classes, confidences)
+                } for c, conf in zip(classes, confidences)
             ]
         }
 
     except Exception as e:
-        logger.error(f"Error in YOLO exhibit detection: {str(e)}")
+        logger.error(f"Error in YOLO TFLite exhibit detection: {str(e)}")
         return {'exhibit': 'unknown', 'confidence': 0.0, 'error': str(e)}
 
 
