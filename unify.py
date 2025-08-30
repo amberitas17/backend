@@ -341,8 +341,8 @@ def detect_exhibit_yolo(image):
         # --------------------
         # Inference
         # --------------------
-        input_name = yolo_session.get_inputs()[0].name
-        outputs = yolo_session.run(None, {input_name: img})
+        input_name = yolo_model.get_inputs()[0].name
+        outputs = yolo_model.run(None, {input_name: img})
 
         # YOLOv8 ONNX usually returns a single array: (batch, num_dets, 85)
         preds = outputs[0][0]
