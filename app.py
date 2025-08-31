@@ -13,6 +13,9 @@ from werkzeug.utils import secure_filename
 from inference_sdk import InferenceHTTPClient
 import tensorflow as tf
 from tensorflow import keras
+from dotenv import load_dotenv
+
+load_dotenv()
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -23,91 +26,139 @@ CORS(app, origins="*")
 
 # Global variables for models
 roboflow_client = None
-emotion_model = None
+# emotion_model = None
 face_cascade = None
+roboflow_ready = False
+
 
 # AssemblyAI configuration
 ASSEMBLYAI_API_KEY = "9d46bf92cf684f81b9210bc5574f2580"
 ASSEMBLYAI_BASE_URL = "https://api.assemblyai.com"
 
 # Roboflow configuration
-ROBOFLOW_API_KEY = "s9XwJDaT5rKwSn7ZyM5x"
-ROBOFLOW_WORKSPACE = "rich-9cfdj"
-ROBOFLOW_AGE_WORKFLOW_ID = "custom-workflow"
-ROBOFLOW_EMOTION_WORKFLOW_ID = "detect-and-classify"
+# ROBOFLOW_API_KEY = "s9XwJDaT5rKwSn7ZyM5x"
+# ROBOFLOW_WORKSPACE = "rich-9cfdj"
+# ROBOFLOW_AGE_WORKFLOW_ID = "custom-workflow"
+# ROBOFLOW_EMOTION_WORKFLOW_ID = "detect-and-classify"
 
 # Model configuration - Based on actual training architecture
 GENDER_LABELS = ['Male', 'Female']  # gender_dict = {0:"Male", 1:"Female"}
 
 # Emotion labels - Updated to match the provided model
 EMOTION_LABELS = ['Angry', 'Disgust', 'Fear', 'Happy', 'Neutral', 'Sad', 'Surprise']
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+# Global variables
+emotion_interpreter = None
+emotion_input_details = None
+emotion_output_details = None
+
 
 def load_models():
     """Initialize Roboflow client, load local emotion model and face detection cascade on startup"""
-    global roboflow_client, emotion_model, face_cascade
+    global roboflow_client, emotion_interpreter, emotion_input_details, emotion_output_details, face_cascade, roboflow_ready
+
+    api_key = os.getenv("ROBOFLOW_API_KEY")
+    workspace = os.getenv("ROBOFLOW_WORKSPACE")
+    age_workflow = os.getenv("ROBOFLOW_AGE_WORKFLOW_ID", "custom-workflow")
+    emotion_workflow = os.getenv("ROBOFLOW_EMOTION_WORKFLOW_ID", "detect-and-classify")
     
     try:
         # Load Haar cascade for face detection
         logger.info("Loading Haar cascade for face detection...")
-        cascade_path = os.path.join('asset', 'haarcascade_frontalface_default.xml')
-        if os.path.exists(cascade_path):
+        if face_cascade is None:
+            cascade_path = os.path.join(BASE_DIR, 'asset', 'haarcascade_frontalface_default.xml')
             face_cascade = cv2.CascadeClassifier(cascade_path)
             logger.info("Face detection cascade loaded successfully")
-        else:
-            logger.error(f"Haar cascade not found at {cascade_path}")
             
         # Load local emotion model
-        logger.info("Loading local emotion model...")
-        emotion_model_path = os.path.join('asset', 'emotion_model.h5')
-        if os.path.exists(emotion_model_path):
-            emotion_model = keras.models.load_model(emotion_model_path)
-            logger.info("Local emotion model loaded successfully")
-        else:
-            logger.error(f"Emotion model not found at {emotion_model_path}")
+        # logger.info("Loading local emotion model...")
+        # if emotion_model is None:
+        #     emotion_model_path = os.path.join(BASE_DIR, 'asset', 'emotion_model.h5')
+        #     emotion_model = keras.models.load_model(emotion_model_path)
+        #     logger.info("Local emotion model loaded successfully")
+        logger.info("Loading local emotion TFLite model...")
+        if emotion_interpreter is None:
+            emotion_model_path = os.path.join(BASE_DIR, 'asset', 'emotion_model.tflite')
+            emotion_interpreter = tf.lite.Interpreter(model_path=emotion_model_path)
+            emotion_interpreter.allocate_tensors()
+            emotion_input_details = emotion_interpreter.get_input_details()
+            emotion_output_details = emotion_interpreter.get_output_details()
+            logger.info("Local emotion TFLite model loaded successfully")
             
         # Initialize Roboflow client for age prediction
-        logger.info("Initializing Roboflow client for age prediction...")
-        roboflow_client = InferenceHTTPClient(
-            api_url="https://serverless.roboflow.com",
-            api_key=ROBOFLOW_API_KEY
-        )
-        logger.info("Roboflow client initialized successfully")
+        # logger.info("Initializing Roboflow client for age prediction...")
+        # roboflow_client = InferenceHTTPClient(
+        #     api_url="https://serverless.roboflow.com",
+        #     api_key=ROBOFLOW_API_KEY
+        # )
+        # logger.info("Roboflow client initialized successfully")
+        if roboflow_client is None:
+            if api_key and workspace:
+                try:
+                    roboflow_client = InferenceHTTPClient(
+                        api_url="https://serverless.roboflow.com",
+                        api_key=api_key
+                    )
+                    # test connectivity (cheap call)
+                    # roboflow_client.run_workflow(
+                    #     workspace_name=workspace,
+                    #     workflow_id=age_workflow,
+                    #     images={},  # empty run just to validate
+                    #     use_cache=True
+                    # )
+                    roboflow_ready = True
+                    logger.info("✅ Roboflow client initialized and verified")
+                except Exception as e:
+                    logger.error(f"❌ Failed to init Roboflow: {e}")
+                    roboflow_ready = False
+            else:
+                logger.warning("⚠️ No Roboflow API key/workspace found")
+                roboflow_ready = False
+
         
     except Exception as e:
         logger.error(f"Error loading models: {str(e)}")
         raise e
 
-def predict_age_with_roboflow(image_base64):
+def predict_age_with_roboflow(image_base64: str):
     """Predict age using Roboflow API"""
     try:
+        workspace = os.getenv("ROBOFLOW_WORKSPACE")
+        age_workflow = os.getenv("ROBOFLOW_AGE_WORKFLOW_ID", "custom-workflow")
+        emotion_workflow = os.getenv("ROBOFLOW_EMOTION_WORKFLOW_ID", "detect-and-classify")
         logger.info("Predicting age with Roboflow...")
         
         # Save image temporarily for Roboflow
-        temp_image_path = "temp_age_image.jpg"
+        # temp_image_path = "temp_age_image.jpg"
         
         # Decode base64 image
         if ',' in image_base64:
             image_base64 = image_base64.split(',')[1]
         
-        image_data = base64.b64decode(image_base64)
-        with open(temp_image_path, 'wb') as f:
-            f.write(image_data)
+        # image_data = base64.b64decode(image_base64)
+        # with open(temp_image_path, 'wb') as f:
+        #     f.write(image_data)
         
         # Run Roboflow age classification workflow
         result = roboflow_client.run_workflow(
-            workspace_name=ROBOFLOW_WORKSPACE,
-            workflow_id=ROBOFLOW_AGE_WORKFLOW_ID,
-            images={
-                "image": temp_image_path
-            },
+            workspace_name=workspace,
+            workflow_id=age_workflow,
+             images=[
+                {
+                    "image": {
+                        "type": "base64",
+                        "value": image_base64
+                    }
+                }
+            ],
             use_cache=True
         )
         
         # Clean up temp file
-        try:
-            os.remove(temp_image_path)
-        except:
-            pass
+        # try:
+        #     os.remove(temp_image_path)
+        # except:
+        #     pass
         
         # Process Roboflow response
         if result and len(result) > 0:
@@ -159,9 +210,12 @@ def predict_age_with_roboflow(image_base64):
         }
 
 # DEPRECATED: Using local emotion model instead
-def predict_emotion_with_roboflow(image_base64):
+def predict_emotion_with_roboflow(image_base64: str):
     """DEPRECATED: Predict emotion using Roboflow facial emotion detection API"""
     try:
+        workspace = os.getenv("ROBOFLOW_WORKSPACE")
+        age_workflow = os.getenv("ROBOFLOW_AGE_WORKFLOW_ID", "custom-workflow")
+        emotion_workflow = os.getenv("ROBOFLOW_EMOTION_WORKFLOW_ID", "detect-and-classify")
         logger.info("Predicting emotion with Roboflow...")
         
         # Save image temporarily for Roboflow
@@ -177,10 +231,13 @@ def predict_emotion_with_roboflow(image_base64):
         
         # Run Roboflow emotion detection workflow
         result = roboflow_client.run_workflow(
-            workspace_name=ROBOFLOW_WORKSPACE,
-            workflow_id=ROBOFLOW_EMOTION_WORKFLOW_ID,
+            workspace_name=workspace,
+            workflow_id=emotion_workflow,
             images={
-                "image": temp_image_path
+                "image": {
+                    "type": "base64",
+                    "value": image_base64
+                }
             },
             use_cache=True
         )
@@ -334,13 +391,101 @@ def preprocess_image_for_emotion(image, face_coords=None):
         logger.error(f"Error preprocessing image for emotion: {str(e)}")
         return None
 
-def predict_emotion_local(image_base64):
-    """Predict emotion using local .h5 model with face detection"""
-    global emotion_model, face_cascade
+# def predict_emotion_local(image_base64):
+#     """Predict emotion using local .h5 model with face detection"""
+#     global emotion_model, face_cascade
     
+#     try:
+#         if emotion_model is None:
+#             logger.error("Emotion model not loaded")
+#             return {
+#                 'predicted_emotion': 'Neutral',
+#                 'confidence': 0.0,
+#                 'all_emotions': {emotion: 0.14 for emotion in EMOTION_LABELS},
+#                 'detections_count': 0,
+#                 'error': 'Emotion model not loaded'
+#             }
+            
+#         if face_cascade is None:
+#             logger.error("Face cascade not loaded")
+#             return {
+#                 'predicted_emotion': 'Neutral',
+#                 'confidence': 0.0,
+#                 'all_emotions': {emotion: 0.14 for emotion in EMOTION_LABELS},
+#                 'detections_count': 0,
+#                 'error': 'Face detection not available'
+#             }
+            
+#         logger.info("Predicting emotion with local model and face detection...")
+        
+#         # Decode base64 image
+#         image = decode_base64_image(image_base64)
+#         if image is None:
+#             raise ValueError("Failed to decode base64 image")
+            
+#         # Detect faces first
+#         faces = detect_faces(image)
+#         if len(faces) == 0:
+#             logger.warning("No faces detected in the image")
+#             return {
+#                 'predicted_emotion': 'Unknown',
+#                 'confidence': 0.0,
+#                 'all_emotions': {emotion: 0.0 for emotion in EMOTION_LABELS},
+#                 'detections_count': 0,
+#                 'error': 'No face detected in the image'
+#             }
+            
+#         # Use the largest face for prediction
+#         largest_face = max(faces, key=lambda face: face[2] * face[3])
+#         x, y, w, h = largest_face
+        
+#         logger.info(f"Using largest face at coordinates: ({x}, {y}, {w}, {h})")
+        
+#         # Preprocess for emotion model with face cropping
+#         processed_image = preprocess_image_for_emotion(image, largest_face)
+#         if processed_image is None:
+#             raise ValueError("Failed to preprocess image")
+            
+#         # Make prediction
+#         predictions = emotion_model.predict(processed_image, verbose=0)
+        
+#         # Get predicted class and confidence
+#         predicted_class_idx = np.argmax(predictions[0])
+#         confidence = float(predictions[0][predicted_class_idx])
+#         predicted_emotion = EMOTION_LABELS[predicted_class_idx]
+        
+#         # Create emotion probabilities dictionary
+#         all_emotions = {}
+#         for i, emotion in enumerate(EMOTION_LABELS):
+#             all_emotions[emotion] = float(predictions[0][i])
+            
+#         logger.info(f"Local emotion prediction: {predicted_emotion} with confidence {confidence:.3f}")
+        
+#         return {
+#             'predicted_emotion': predicted_emotion,
+#             'confidence': confidence,
+#             'all_emotions': all_emotions,
+#             'detections_count': len(faces),
+#             'face_coordinates': largest_face.tolist()
+#         }
+        
+#     except Exception as e:
+#         logger.error(f"Error in local emotion prediction: {str(e)}")
+#         return {
+#             'predicted_emotion': 'Neutral',
+#             'confidence': 0.5,
+#             'all_emotions': {emotion: 1.0/len(EMOTION_LABELS) for emotion in EMOTION_LABELS},
+#             'detections_count': 0,
+#             'error': str(e)
+#         }
+
+def predict_emotion_local(image_base64):
+    """Predict emotion using local .tflite model with face detection"""
+    global emotion_interpreter, emotion_input_details, emotion_output_details, face_cascade
+
     try:
-        if emotion_model is None:
-            logger.error("Emotion model not loaded")
+        if emotion_interpreter is None:
+            logger.error("Emotion TFLite model not loaded")
             return {
                 'predicted_emotion': 'Neutral',
                 'confidence': 0.0,
@@ -348,7 +493,7 @@ def predict_emotion_local(image_base64):
                 'detections_count': 0,
                 'error': 'Emotion model not loaded'
             }
-            
+
         if face_cascade is None:
             logger.error("Face cascade not loaded")
             return {
@@ -358,14 +503,14 @@ def predict_emotion_local(image_base64):
                 'detections_count': 0,
                 'error': 'Face detection not available'
             }
-            
-        logger.info("Predicting emotion with local model and face detection...")
-        
+
+        logger.info("Predicting emotion with local TFLite model and face detection...")
+
         # Decode base64 image
         image = decode_base64_image(image_base64)
         if image is None:
             raise ValueError("Failed to decode base64 image")
-            
+
         # Detect faces first
         faces = detect_faces(image)
         if len(faces) == 0:
@@ -377,33 +522,28 @@ def predict_emotion_local(image_base64):
                 'detections_count': 0,
                 'error': 'No face detected in the image'
             }
-            
-        # Use the largest face for prediction
+
+        # Use the largest face
         largest_face = max(faces, key=lambda face: face[2] * face[3])
-        x, y, w, h = largest_face
-        
-        logger.info(f"Using largest face at coordinates: ({x}, {y}, {w}, {h})")
-        
-        # Preprocess for emotion model with face cropping
         processed_image = preprocess_image_for_emotion(image, largest_face)
         if processed_image is None:
             raise ValueError("Failed to preprocess image")
-            
-        # Make prediction
-        predictions = emotion_model.predict(processed_image, verbose=0)
-        
-        # Get predicted class and confidence
-        predicted_class_idx = np.argmax(predictions[0])
-        confidence = float(predictions[0][predicted_class_idx])
+
+        # Run inference on TFLite model
+        emotion_interpreter.set_tensor(emotion_input_details[0]['index'], processed_image.astype(np.float32))
+        emotion_interpreter.invoke()
+        predictions = emotion_interpreter.get_tensor(emotion_output_details[0]['index'])[0]
+
+        # Get predicted class
+        predicted_class_idx = np.argmax(predictions)
+        confidence = float(predictions[predicted_class_idx])
         predicted_emotion = EMOTION_LABELS[predicted_class_idx]
-        
-        # Create emotion probabilities dictionary
-        all_emotions = {}
-        for i, emotion in enumerate(EMOTION_LABELS):
-            all_emotions[emotion] = float(predictions[0][i])
-            
-        logger.info(f"Local emotion prediction: {predicted_emotion} with confidence {confidence:.3f}")
-        
+
+        # Map all emotions
+        all_emotions = {EMOTION_LABELS[i]: float(predictions[i]) for i in range(len(EMOTION_LABELS))}
+
+        logger.info(f"Local emotion prediction (TFLite): {predicted_emotion} with confidence {confidence:.3f}")
+
         return {
             'predicted_emotion': predicted_emotion,
             'confidence': confidence,
@@ -411,7 +551,7 @@ def predict_emotion_local(image_base64):
             'detections_count': len(faces),
             'face_coordinates': largest_face.tolist()
         }
-        
+
     except Exception as e:
         logger.error(f"Error in local emotion prediction: {str(e)}")
         return {
@@ -502,9 +642,9 @@ def health_check():
     return jsonify({
         'status': 'healthy',
         'models_loaded': {
-            'roboflow': roboflow_client is not None,
+            'roboflow': roboflow_ready,
             'assemblyai': True,  # AssemblyAI is API-based, no local model needed
-            'emotion_model': emotion_model is not None,
+            'emotion_interpreter': emotion_interpreter is not None,
             'face_cascade': face_cascade is not None
         }
     })
@@ -522,7 +662,7 @@ def predict_combined():
             logger.error("Roboflow client not initialized")
             return jsonify({'error': 'Roboflow client not initialized'}), 500
             
-        if emotion_model is None:
+        if emotion_interpreter is None:
             logger.error("Local emotion model not loaded")
             return jsonify({'error': 'Local emotion model not loaded'}), 500
         
@@ -812,4 +952,4 @@ if __name__ == '__main__':
     load_models()
     
     # Run the Flask app
-    app.run(host='0.0.0.0', port=5000, debug=True)
+    app.run(host='0.0.0.0', port=5001, debug=False)

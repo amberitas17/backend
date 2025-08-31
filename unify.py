@@ -14,6 +14,10 @@ from inference_sdk import InferenceHTTPClient
 import tensorflow as tf
 from tensorflow import keras
 from ultralytics import YOLO
+from dotenv import load_dotenv
+import onnxruntime as ort
+
+load_dotenv()
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -24,7 +28,7 @@ CORS(app)
 
 # Global variables for models
 roboflow_client = None
-emotion_model = None
+# emotion_model = None
 face_cascade = None
 yolo_model = None
 
@@ -33,10 +37,10 @@ ASSEMBLYAI_API_KEY = "9d46bf92cf684f81b9210bc5574f2580"
 ASSEMBLYAI_BASE_URL = "https://api.assemblyai.com"
 
 # Roboflow configuration
-ROBOFLOW_API_KEY = "s9XwJDaT5rKwSn7ZyM5x"
-ROBOFLOW_WORKSPACE = "rich-9cfdj"
-ROBOFLOW_AGE_WORKFLOW_ID = "custom-workflow"
-ROBOFLOW_EMOTION_WORKFLOW_ID = "detect-and-classify"
+# ROBOFLOW_API_KEY = "s9XwJDaT5rKwSn7ZyM5x"
+# ROBOFLOW_WORKSPACE = "rich-9cfdj"
+# ROBOFLOW_AGE_WORKFLOW_ID = "custom-workflow"
+# ROBOFLOW_EMOTION_WORKFLOW_ID = "detect-and-classify"
 
 # Model configuration
 GENDER_LABELS = ['Male', 'Female']
@@ -68,21 +72,55 @@ EXHIBIT_LABELS = {
     21: 'urban_mutations',
     22: 'waterworks'
 }
+# EXHIBIT_LABELS = {
+#     0: 'dialogue_with_time',
+#     1: 'earth_alive',
+# }
+
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+# Global variables
+emotion_interpreter = None
+emotion_input_details = None
+emotion_output_details = None
+
+yolo_interpreter = None
+yolo_input_details = None
+yolo_output_details = None
 
 def load_models():
     """Initialize all models on startup"""
-    global roboflow_client, emotion_model, face_cascade, yolo_model
+    global yolo_interpreter, yolo_input_details, yolo_output_details, emotion_interpreter, emotion_input_details, emotion_output_details, face_cascade, roboflow_client
     
+    api_key = os.getenv("ROBOFLOW_API_KEY")
+    workspace = os.getenv("ROBOFLOW_WORKSPACE")
+    age_workflow = os.getenv("ROBOFLOW_AGE_WORKFLOW_ID", "custom-workflow")
+    emotion_workflow = os.getenv("ROBOFLOW_EMOTION_WORKFLOW_ID", "detect-and-classify")
+
+
     try:
         # Load YOLO model for exhibit detection
-        logger.info("Loading YOLO model for exhibit detection...")
-        yolo_model_path = "yolov8_model.pt"  # Update path as needed
-        if os.path.exists(yolo_model_path):
-            yolo_model = YOLO(yolo_model_path)
-            logger.info("YOLO model loaded successfully")
-        else:
-            logger.warning(f"YOLO model not found at {yolo_model_path}")
-            
+        # logger.info("Loading YOLO model for exhibit detection...")
+        # yolo_model_path = "yolov8_model.pt"  # Update path as needed
+        # if os.path.exists(yolo_model_path):
+        #     yolo_model = YOLO(yolo_model_path)
+        #     logger.info("YOLO model loaded successfully")
+        # else:
+        #     logger.warning(f"YOLO model not found at {yolo_model_path}")
+        # yolo_model_path = os.path.join(BASE_DIR, "model.tflite")
+        # if os.path.exists(yolo_model_path):
+        #     yolo_interpreter = tf.lite.Interpreter(model_path=yolo_model_path)
+        #     yolo_interpreter.allocate_tensors()
+        #     yolo_input_details = yolo_interpreter.get_input_details()
+        #     yolo_output_details = yolo_interpreter.get_output_details()
+        #     logger.info("YOLO TFLite model loaded successfully")
+        # else:
+        #     logger.warning(f"YOLO TFLite model not found at {yolo_model_path}")
+        yolo_model_path = os.path.join(os.path.dirname(__file__), "yolov8_model.onnx") 
+        if os.path.exists(yolo_model_path): 
+            yolo_model = YOLO(yolo_model_path) 
+            logger.info(f"YOLO model loaded successfully from {yolo_model_path}") 
+        else: logger.warning(f"YOLO model not found at {yolo_model_path}")
         # Load Haar cascade for face detection
         logger.info("Loading Haar cascade for face detection...")
         cascade_path = os.path.join('asset', 'haarcascade_frontalface_default.xml')
@@ -93,21 +131,57 @@ def load_models():
             logger.warning(f"Haar cascade not found at {cascade_path}")
             
         # Load local emotion model
-        logger.info("Loading local emotion model...")
-        emotion_model_path = os.path.join('asset', 'emotion_model.h5')
-        if os.path.exists(emotion_model_path):
-            emotion_model = keras.models.load_model(emotion_model_path)
-            logger.info("Local emotion model loaded successfully")
-        else:
-            logger.warning(f"Emotion model not found at {emotion_model_path}")
-            
+        # logger.info("Loading local emotion model...")
+        # emotion_model_path = os.path.join('asset', 'emotion_model.h5')
+        # if os.path.exists(emotion_model_path):
+        #     emotion_model = keras.models.load_model(emotion_model_path)
+        #     logger.info("Local emotion model loaded successfully")
+        # else:
+        #     logger.warning(f"Emotion model not found at {emotion_model_path}")
+        logger.info("Loading local emotion TFLite model...")
+        if emotion_interpreter is None:
+            emotion_model_path = os.path.join(BASE_DIR, 'asset', 'emotion_model.tflite')
+            emotion_interpreter = tf.lite.Interpreter(model_path=emotion_model_path)
+            emotion_interpreter.allocate_tensors()
+            emotion_input_details = emotion_interpreter.get_input_details()
+            emotion_output_details = emotion_interpreter.get_output_details()
+            logger.info("Local emotion TFLite model loaded successfully")
+
+
         # Initialize Roboflow client for age prediction
-        logger.info("Initializing Roboflow client for age prediction...")
-        roboflow_client = InferenceHTTPClient(
-            api_url="https://serverless.roboflow.com",
-            api_key=ROBOFLOW_API_KEY
-        )
-        logger.info("Roboflow client initialized successfully")
+        # logger.info("Initializing Roboflow client for age prediction...")
+        # roboflow_client = InferenceHTTPClient(
+        #     api_url="https://serverless.roboflow.com",
+        #     api_key=ROBOFLOW_API_KEY
+        # )
+        # logger.info("Roboflow client initialized successfully")
+        if roboflow_client is None:
+            if api_key and workspace:
+                try:
+                    roboflow_client = InferenceHTTPClient(
+                        api_url="https://serverless.roboflow.com",
+                        api_key=api_key
+                    )
+                    # test connectivity (cheap call)
+                    # roboflow_client.run_workflow(
+                    #     workspace_name=workspace,
+                    #     workflow_id=age_workflow,
+                    #     images={},  # empty run just to validate
+                    #     use_cache=True
+                    # )
+                    roboflow_ready = True
+                    logger.info("✅ Roboflow client initialized and verified")
+                except Exception as e:
+                    logger.error(f"❌ Failed to init Roboflow: {e}")
+                    roboflow_ready = False
+            else:
+                logger.warning("⚠️ No Roboflow API key/workspace found")
+                roboflow_ready = False
+        
+        globals()['yolo_model'] = yolo_model
+        globals()['face_cascade'] = face_cascade
+        globals()['emotion_interpreter'] = emotion_interpreter
+        globals()['roboflow_client'] = roboflow_client
         
     except Exception as e:
         logger.error(f"Error loading models: {str(e)}")
@@ -164,30 +238,76 @@ def decode_base64_image(base64_string):
         raise e
 
 # YOLO Exhibit Detection Functions
+# def detect_exhibit_yolo(image):
+#     """Detect exhibit using YOLO model"""
+#     try:
+#         if yolo_model is None:
+#             logger.error("YOLO model not loaded")
+#             return {'exhibit': 'unknown', 'confidence': 0.0, 'error': 'YOLO model not loaded'}
+            
+#         results = yolo_model(image)[0]
+        
+#         if len(results.boxes.cls) == 0:
+#             return {'exhibit': 'unknown', 'confidence': 0.0}
+            
+#         # Get the detection with highest confidence
+#         confidences = results.boxes.conf.cpu().numpy()
+#         classes = results.boxes.cls.cpu().numpy()
+        
+#         best_idx = np.argmax(confidences)
+#         class_id = int(classes[best_idx])
+#         confidence = float(confidences[best_idx])
+        
+#         exhibit = EXHIBIT_LABELS.get(class_id, 'unknown')
+        
+#         logger.info(f"YOLO detected exhibit: {exhibit} with confidence {confidence:.3f}")
+        
+#         return {
+#             'exhibit': exhibit,
+#             'confidence': confidence,
+#             'class_id': class_id,
+#             'all_detections': [
+#                 {
+#                     'exhibit': EXHIBIT_LABELS.get(int(cls), 'unknown'),
+#                     'confidence': float(conf),
+#                     'class_id': int(cls)
+#                 }
+#                 for cls, conf in zip(classes, confidences)
+#             ]
+#         }
+        
+#     except Exception as e:
+#         logger.error(f"Error in YOLO exhibit detection: {str(e)}")
+#         return {'exhibit': 'unknown', 'confidence': 0.0, 'error': str(e)}
 def detect_exhibit_yolo(image):
-    """Detect exhibit using YOLO model"""
+    """Detect exhibit using YOLO model (.pt or .onnx via Ultralytics)"""
     try:
         if yolo_model is None:
             logger.error("YOLO model not loaded")
             return {'exhibit': 'unknown', 'confidence': 0.0, 'error': 'YOLO model not loaded'}
-            
+
+        # Validate input
+        if image is None or not isinstance(image, np.ndarray):
+            return {'exhibit': 'unknown', 'confidence': 0.0, 'error': 'Invalid image input'}
+
+        # Run YOLO inference
         results = yolo_model(image)[0]
-        
-        if len(results.boxes.cls) == 0:
+
+        if not hasattr(results, "boxes") or results.boxes is None or len(results.boxes.cls) == 0:
             return {'exhibit': 'unknown', 'confidence': 0.0}
-            
-        # Get the detection with highest confidence
+
+        # Extract detections
         confidences = results.boxes.conf.cpu().numpy()
         classes = results.boxes.cls.cpu().numpy()
-        
+
         best_idx = np.argmax(confidences)
         class_id = int(classes[best_idx])
         confidence = float(confidences[best_idx])
-        
+
         exhibit = EXHIBIT_LABELS.get(class_id, 'unknown')
-        
+
         logger.info(f"YOLO detected exhibit: {exhibit} with confidence {confidence:.3f}")
-        
+
         return {
             'exhibit': exhibit,
             'confidence': confidence,
@@ -201,24 +321,204 @@ def detect_exhibit_yolo(image):
                 for cls, conf in zip(classes, confidences)
             ]
         }
-        
+
     except Exception as e:
         logger.error(f"Error in YOLO exhibit detection: {str(e)}")
         return {'exhibit': 'unknown', 'confidence': 0.0, 'error': str(e)}
 
+# def detect_exhibit_yolo(image):
+#     """Detect exhibit using YOLO TFLite model"""
+#     global yolo_interpreter, yolo_input_details, yolo_output_details
+
+#     try:
+#         if yolo_interpreter is None:
+#             logger.error("YOLO TFLite model not loaded")
+#             return {'exhibit': 'unknown', 'confidence': 0.0, 'error': 'YOLO model not loaded'}
+        
+#         if isinstance(image, np.ndarray):
+#             image = Image.fromarray(cv2.cvtColor(image, cv2.COLOR_BGR2RGB))
+#         # Preprocess image
+#         if image.mode != 'RGB':
+#             image = image.convert('RGB')
+
+#         # Resize by shorter side to 256 while maintaining aspect ratio
+#         width, height = image.size
+#         if width < height:
+#             new_width = 256
+#             new_height = int(height * (256 / width))
+#         else:
+#             new_height = 256
+#             new_width = int(width * (256 / height))
+#         image = image.resize((new_width, new_height), Image.BILINEAR)
+
+#         # Center crop to 224×224
+#         left = (new_width - 224) // 2
+#         top = (new_height - 224) // 2
+#         image = image.crop((left, top, left + 224, top + 224))
+
+#         # Convert to NumPy array and normalize to [0, 1]
+#         img_array = np.array(image).astype(np.float32) / 255.0
+
+#         # Add batch dimension
+#         img_array = np.expand_dims(img_array, axis=0)
+
+#         # Set input tensor
+#         yolo_interpreter.set_tensor(yolo_input_details[0]['index'], img_array)
+#         yolo_interpreter.invoke()
+
+#         # Get output
+#         output_tensor = yolo_interpreter.get_tensor(yolo_output_details[0]['index'])  # shape: (1, num_classes)
+#         preds = output_tensor[0]  # shape: (num_classes,)
+
+#         # Sort predictions by confidence
+#         top_indices = np.argsort(preds)[-2:][::-1]
+#         top_predictions = [
+#             {
+#                 'exhibit': EXHIBIT_LABELS.get(i, 'unknown'),
+#                 'confidence': float(preds[i]),
+#                 'class_id': i
+#             }
+#             for i in top_indices
+#         ]
+
+#         # Confidence gap threshold
+#         AMBIGUITY_THRESHOLD = 0.05  # You can tune this
+
+#         gap = top_predictions[0]['confidence'] - top_predictions[1]['confidence']
+
+#         if gap < AMBIGUITY_THRESHOLD:
+#             # Ambiguous result
+#             return {
+#                 'exhibit': 'ambiguous',
+#                 'top_choices': top_predictions,
+#                 'confidence_gap': gap,
+#                 'all_predictions': [
+#                     {
+#                         'exhibit': EXHIBIT_LABELS.get(i, 'unknown'),
+#                         'confidence': float(score),
+#                         'class_id': i
+#                     } for i, score in enumerate(preds) if score > 0.3
+#                 ]
+#             }
+#         else:
+#             # Confident result
+#             return {
+#                 'exhibit': top_predictions[0]['exhibit'],
+#                 'confidence': top_predictions[0]['confidence'],
+#                 'class_id': top_predictions[0]['class_id'],
+#                 'all_predictions': [
+#                     {
+#                         'exhibit': EXHIBIT_LABELS.get(i, 'unknown'),
+#                         'confidence': float(score),
+#                         'class_id': i
+#                     } for i, score in enumerate(preds) if score > 0.3
+#                 ]
+#             }
+
+
+#     except Exception as e:
+#         logger.error(f"Error in YOLO TFLite exhibit detection: {str(e)}")
+#         return {'exhibit': 'unknown', 'confidence': 0.0, 'error': str(e)}
+
+
+
 # Face Analysis Functions
-def predict_age_with_roboflow(image_base64):
+# def predict_age_with_roboflow(image_base64):
+#     """Predict age using Roboflow API"""
+#     try:
+#         if roboflow_client is None:
+#             logger.error("Roboflow client not initialized")
+#             return {
+#                 'age_group': "Adult",
+#                 'estimated_age': 25,
+#                 'confidence': 0.0,
+#                 'raw_class': "error"
+#             }
+            
+#         logger.info("Predicting age with Roboflow...")
+        
+#         # Save image temporarily for Roboflow
+#         temp_image_path = "temp_age_image.jpg"
+        
+#         # Decode base64 image
+#         if ',' in image_base64:
+#             image_base64 = image_base64.split(',')[1]
+        
+#         image_data = base64.b64decode(image_base64)
+#         with open(temp_image_path, 'wb') as f:
+#             f.write(image_data)
+        
+#         # Run Roboflow age classification workflow
+#         result = roboflow_client.run_workflow(
+#             workspace_name=ROBOFLOW_WORKSPACE,
+#             workflow_id=ROBOFLOW_AGE_WORKFLOW_ID,
+#             images={
+#                 "image": temp_image_path
+#             },
+#             use_cache=True
+#         )
+        
+#         # Clean up temp file
+#         try:
+#             os.remove(temp_image_path)
+#         except:
+#             pass
+        
+#         # Process Roboflow response
+#         if result and len(result) > 0:
+#             predictions = result[0].get('predictions', {})
+#             if 'predictions' in predictions and len(predictions['predictions']) > 0:
+#                 prediction = predictions['predictions'][0]
+#                 class_name = prediction.get('class', '')
+#                 confidence = prediction.get('confidence', 0.0)
+                
+#                 logger.info(f"Roboflow age prediction: {class_name} with confidence {confidence}")
+                
+#                 # Parse age group based on class
+#                 if "(0-20)" in class_name:
+#                     age_group = "Child"
+#                     estimated_age = 15
+#                 elif "(20-40)" in class_name:
+#                     age_group = "Adult"
+#                     estimated_age = 30
+#                 elif "40" in class_name or "(40+" in class_name:
+#                     age_group = "Adult"
+#                     estimated_age = 50
+#                 else:
+#                     age_group = "Adult"
+#                     estimated_age = 25
+                
+#                 return {
+#                     'age_group': age_group,
+#                     'estimated_age': estimated_age,
+#                     'confidence': confidence,
+#                     'raw_class': class_name
+#                 }
+            
+#         # Default response if prediction fails
+#         logger.warning("Roboflow age prediction failed or returned empty results")
+#         return {
+#             'age_group': "Adult",
+#             'estimated_age': 25,
+#             'confidence': 0.5,
+#             'raw_class': "unknown"
+#         }
+        
+#     except Exception as e:
+#         logger.error(f"Error in Roboflow age prediction: {str(e)}")
+#         return {
+#             'age_group': "Adult",
+#             'estimated_age': 25,
+#             'confidence': 0.5,
+#             'raw_class': "error"
+#         }
+
+def predict_age_with_roboflow(image_base64: str):
     """Predict age using Roboflow API"""
     try:
-        if roboflow_client is None:
-            logger.error("Roboflow client not initialized")
-            return {
-                'age_group': "Adult",
-                'estimated_age': 25,
-                'confidence': 0.0,
-                'raw_class': "error"
-            }
-            
+        workspace = os.getenv("ROBOFLOW_WORKSPACE")
+        age_workflow = os.getenv("ROBOFLOW_AGE_WORKFLOW_ID", "custom-workflow")
+        emotion_workflow = os.getenv("ROBOFLOW_EMOTION_WORKFLOW_ID", "detect-and-classify")
         logger.info("Predicting age with Roboflow...")
         
         # Save image temporarily for Roboflow
@@ -234,8 +534,8 @@ def predict_age_with_roboflow(image_base64):
         
         # Run Roboflow age classification workflow
         result = roboflow_client.run_workflow(
-            workspace_name=ROBOFLOW_WORKSPACE,
-            workflow_id=ROBOFLOW_AGE_WORKFLOW_ID,
+            workspace_name=workspace,
+            workflow_id=age_workflow,
             images={
                 "image": temp_image_path
             },
@@ -261,16 +561,16 @@ def predict_age_with_roboflow(image_base64):
                 # Parse age group based on class
                 if "(0-20)" in class_name:
                     age_group = "Child"
-                    estimated_age = 15
+                    estimated_age = 15  # Mid-point of 0-20
                 elif "(20-40)" in class_name:
                     age_group = "Adult"
-                    estimated_age = 30
+                    estimated_age = 30  # Mid-point of 20-40
                 elif "40" in class_name or "(40+" in class_name:
                     age_group = "Adult"
-                    estimated_age = 50
+                    estimated_age = 50  # Estimated for 40+
                 else:
                     age_group = "Adult"
-                    estimated_age = 25
+                    estimated_age = 25  # Default
                 
                 return {
                     'age_group': age_group,
@@ -355,13 +655,101 @@ def preprocess_image_for_emotion(image, face_coords=None):
         logger.error(f"Error preprocessing image for emotion: {str(e)}")
         return None
 
-def predict_emotion_local(image_base64):
-    """Predict emotion using local .h5 model with face detection"""
-    global emotion_model, face_cascade
+# def predict_emotion_local(image_base64):
+#     """Predict emotion using local .h5 model with face detection"""
+#     global emotion_model, face_cascade
     
+#     try:
+#         if emotion_model is None:
+#             logger.error("Emotion model not loaded")
+#             return {
+#                 'predicted_emotion': 'Neutral',
+#                 'confidence': 0.0,
+#                 'all_emotions': {emotion: 0.14 for emotion in EMOTION_LABELS},
+#                 'detections_count': 0,
+#                 'error': 'Emotion model not loaded'
+#             }
+            
+#         if face_cascade is None:
+#             logger.error("Face cascade not loaded")
+#             return {
+#                 'predicted_emotion': 'Neutral',
+#                 'confidence': 0.0,
+#                 'all_emotions': {emotion: 0.14 for emotion in EMOTION_LABELS},
+#                 'detections_count': 0,
+#                 'error': 'Face detection not available'
+#             }
+            
+#         logger.info("Predicting emotion with local model and face detection...")
+        
+#         Decode base64 image
+#         image = decode_base64_image(image_base64)
+#         if image is None:
+#             raise ValueError("Failed to decode base64 image")
+            
+#         Detect faces first
+#         faces = detect_faces(image)
+#         if len(faces) == 0:
+#             logger.warning("No faces detected in the image")
+#             return {
+#                 'predicted_emotion': 'Unknown',
+#                 'confidence': 0.0,
+#                 'all_emotions': {emotion: 0.0 for emotion in EMOTION_LABELS},
+#                 'detections_count': 0,
+#                 'error': 'No face detected in the image'
+#             }
+            
+#         Use the largest face for prediction
+#         largest_face = max(faces, key=lambda face: face[2] * face[3])
+#         x, y, w, h = largest_face
+        
+#         logger.info(f"Using largest face at coordinates: ({x}, {y}, {w}, {h})")
+        
+#         Preprocess for emotion model with face cropping
+#         processed_image = preprocess_image_for_emotion(image, largest_face)
+#         if processed_image is None:
+#             raise ValueError("Failed to preprocess image")
+            
+#         Make prediction
+#         predictions = emotion_model.predict(processed_image, verbose=0)
+        
+#         Get predicted class and confidence
+#         predicted_class_idx = np.argmax(predictions[0])
+#         confidence = float(predictions[0][predicted_class_idx])
+#         predicted_emotion = EMOTION_LABELS[predicted_class_idx]
+        
+#         Create emotion probabilities dictionary
+#         all_emotions = {}
+#         for i, emotion in enumerate(EMOTION_LABELS):
+#             all_emotions[emotion] = float(predictions[0][i])
+            
+#         logger.info(f"Local emotion prediction: {predicted_emotion} with confidence {confidence:.3f}")
+        
+#         return {
+#             'predicted_emotion': predicted_emotion,
+#             'confidence': confidence,
+#             'all_emotions': all_emotions,
+#             'detections_count': len(faces),
+#             'face_coordinates': largest_face.tolist()
+#         }
+        
+#     except Exception as e:
+#         logger.error(f"Error in local emotion prediction: {str(e)}")
+#         return {
+#             'predicted_emotion': 'Neutral',
+#             'confidence': 0.5,
+#             'all_emotions': {emotion: 1.0/len(EMOTION_LABELS) for emotion in EMOTION_LABELS},
+#             'detections_count': 0,
+#             'error': str(e)
+#         }
+
+def predict_emotion_local(image_base64):
+    """Predict emotion using local .tflite model with face detection"""
+    global emotion_interpreter, emotion_input_details, emotion_output_details, face_cascade
+
     try:
-        if emotion_model is None:
-            logger.error("Emotion model not loaded")
+        if emotion_interpreter is None:
+            logger.error("Emotion TFLite model not loaded")
             return {
                 'predicted_emotion': 'Neutral',
                 'confidence': 0.0,
@@ -369,7 +757,7 @@ def predict_emotion_local(image_base64):
                 'detections_count': 0,
                 'error': 'Emotion model not loaded'
             }
-            
+
         if face_cascade is None:
             logger.error("Face cascade not loaded")
             return {
@@ -379,14 +767,14 @@ def predict_emotion_local(image_base64):
                 'detections_count': 0,
                 'error': 'Face detection not available'
             }
-            
-        logger.info("Predicting emotion with local model and face detection...")
-        
+
+        logger.info("Predicting emotion with local TFLite model and face detection...")
+
         # Decode base64 image
         image = decode_base64_image(image_base64)
         if image is None:
             raise ValueError("Failed to decode base64 image")
-            
+
         # Detect faces first
         faces = detect_faces(image)
         if len(faces) == 0:
@@ -398,33 +786,28 @@ def predict_emotion_local(image_base64):
                 'detections_count': 0,
                 'error': 'No face detected in the image'
             }
-            
-        # Use the largest face for prediction
+
+        # Use the largest face
         largest_face = max(faces, key=lambda face: face[2] * face[3])
-        x, y, w, h = largest_face
-        
-        logger.info(f"Using largest face at coordinates: ({x}, {y}, {w}, {h})")
-        
-        # Preprocess for emotion model with face cropping
         processed_image = preprocess_image_for_emotion(image, largest_face)
         if processed_image is None:
             raise ValueError("Failed to preprocess image")
-            
-        # Make prediction
-        predictions = emotion_model.predict(processed_image, verbose=0)
-        
-        # Get predicted class and confidence
-        predicted_class_idx = np.argmax(predictions[0])
-        confidence = float(predictions[0][predicted_class_idx])
+
+        # Run inference on TFLite model
+        emotion_interpreter.set_tensor(emotion_input_details[0]['index'], processed_image.astype(np.float32))
+        emotion_interpreter.invoke()
+        predictions = emotion_interpreter.get_tensor(emotion_output_details[0]['index'])[0]
+
+        # Get predicted class
+        predicted_class_idx = np.argmax(predictions)
+        confidence = float(predictions[predicted_class_idx])
         predicted_emotion = EMOTION_LABELS[predicted_class_idx]
-        
-        # Create emotion probabilities dictionary
-        all_emotions = {}
-        for i, emotion in enumerate(EMOTION_LABELS):
-            all_emotions[emotion] = float(predictions[0][i])
-            
-        logger.info(f"Local emotion prediction: {predicted_emotion} with confidence {confidence:.3f}")
-        
+
+        # Map all emotions
+        all_emotions = {EMOTION_LABELS[i]: float(predictions[i]) for i in range(len(EMOTION_LABELS))}
+
+        logger.info(f"Local emotion prediction (TFLite): {predicted_emotion} with confidence {confidence:.3f}")
+
         return {
             'predicted_emotion': predicted_emotion,
             'confidence': confidence,
@@ -432,7 +815,7 @@ def predict_emotion_local(image_base64):
             'detections_count': len(faces),
             'face_coordinates': largest_face.tolist()
         }
-        
+
     except Exception as e:
         logger.error(f"Error in local emotion prediction: {str(e)}")
         return {
@@ -509,7 +892,7 @@ def health_check():
             'yolo': yolo_model is not None,
             'roboflow': roboflow_client is not None,
             'assemblyai': True,
-            'emotion_model': emotion_model is not None,
+            'emotion_interpreter': emotion_interpreter is not None,
             'face_cascade': face_cascade is not None
         }
     })
