@@ -47,35 +47,35 @@ GENDER_LABELS = ['Male', 'Female']
 EMOTION_LABELS = ['Angry', 'Disgust', 'Fear', 'Happy', 'Neutral', 'Sad', 'Surprise']
 
 # YOLO exhibit labels
-# EXHIBIT_LABELS = {
-#     0: 'climate_changed',
-#     1: 'dialogue_with_time',
-#     2: 'e3',
-#     3: 'earth_alive',
-#     4: 'ecogarden',
-#     5: 'energy',
-#     6: 'everyday_science',
-#     7: 'future_makers',
-#     8: 'going_viral',
-#     9: 'kinetic_garden',
-#     10: 'know_your_poo',
-#     11: 'laser_maze',
-#     12: 'phobia2',
-#     13: 'mirror_maze',
-#     14: 'savage_garden',
-#     15: 'singapore_innovations',
-#     16: 'smart_nation',
-#     17: 'some_call_it_science',
-#     18: 'giant_zoetrope',
-#     19: 'minds_eye',
-#     20: 'tinkering_studio',
-#     21: 'urban_mutations',
-#     22: 'waterworks'
-# }
 EXHIBIT_LABELS = {
-    0: 'dialogue_with_time',
-    1: 'earth_alive',
+    0: 'climate_changed',
+    1: 'dialogue_with_time',
+    2: 'e3',
+    3: 'earth_alive',
+    4: 'ecogarden',
+    5: 'energy',
+    6: 'everyday_science',
+    7: 'future_makers',
+    8: 'going_viral',
+    9: 'kinetic_garden',
+    10: 'know_your_poo',
+    11: 'laser_maze',
+    12: 'phobia2',
+    13: 'mirror_maze',
+    14: 'savage_garden',
+    15: 'singapore_innovations',
+    16: 'smart_nation',
+    17: 'some_call_it_science',
+    18: 'giant_zoetrope',
+    19: 'minds_eye',
+    20: 'tinkering_studio',
+    21: 'urban_mutations',
+    22: 'waterworks'
 }
+# EXHIBIT_LABELS = {
+#     0: 'dialogue_with_time',
+#     1: 'earth_alive',
+# }
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
@@ -107,15 +107,20 @@ def load_models():
         #     logger.info("YOLO model loaded successfully")
         # else:
         #     logger.warning(f"YOLO model not found at {yolo_model_path}")
-        yolo_model_path = os.path.join(BASE_DIR, "yolov8_model.tflite")
-        if os.path.exists(yolo_model_path):
-            yolo_interpreter = tf.lite.Interpreter(model_path=yolo_model_path)
-            yolo_interpreter.allocate_tensors()
-            yolo_input_details = yolo_interpreter.get_input_details()
-            yolo_output_details = yolo_interpreter.get_output_details()
-            logger.info("YOLO TFLite model loaded successfully")
-        else:
-            logger.warning(f"YOLO TFLite model not found at {yolo_model_path}")
+        # yolo_model_path = os.path.join(BASE_DIR, "model.tflite")
+        # if os.path.exists(yolo_model_path):
+        #     yolo_interpreter = tf.lite.Interpreter(model_path=yolo_model_path)
+        #     yolo_interpreter.allocate_tensors()
+        #     yolo_input_details = yolo_interpreter.get_input_details()
+        #     yolo_output_details = yolo_interpreter.get_output_details()
+        #     logger.info("YOLO TFLite model loaded successfully")
+        # else:
+        #     logger.warning(f"YOLO TFLite model not found at {yolo_model_path}")
+        yolo_model_path = os.path.join(os.path.dirname(__file__), "yolov8_model.onnx") 
+        if os.path.exists(yolo_model_path): 
+            yolo_model = YOLO(yolo_model_path) 
+            logger.info(f"YOLO model loaded successfully from {yolo_model_path}") 
+        else: logger.warning(f"YOLO model not found at {yolo_model_path}")
         # Load Haar cascade for face detection
         logger.info("Loading Haar cascade for face detection...")
         cascade_path = os.path.join('asset', 'haarcascade_frontalface_default.xml')
@@ -274,91 +279,34 @@ def decode_base64_image(base64_string):
 #     except Exception as e:
 #         logger.error(f"Error in YOLO exhibit detection: {str(e)}")
 #         return {'exhibit': 'unknown', 'confidence': 0.0, 'error': str(e)}
-# def detect_exhibit_yolo(image):
-#     """Detect exhibit using YOLO model (.pt or .onnx via Ultralytics)"""
-#     try:
-#         if yolo_model is None:
-#             logger.error("YOLO model not loaded")
-#             return {'exhibit': 'unknown', 'confidence': 0.0, 'error': 'YOLO model not loaded'}
-
-#         # Validate input
-#         if image is None or not isinstance(image, np.ndarray):
-#             return {'exhibit': 'unknown', 'confidence': 0.0, 'error': 'Invalid image input'}
-
-#         # Run YOLO inference
-#         results = yolo_model(image)[0]
-
-#         if not hasattr(results, "boxes") or results.boxes is None or len(results.boxes.cls) == 0:
-#             return {'exhibit': 'unknown', 'confidence': 0.0}
-
-#         # Extract detections
-#         confidences = results.boxes.conf.cpu().numpy()
-#         classes = results.boxes.cls.cpu().numpy()
-
-#         best_idx = np.argmax(confidences)
-#         class_id = int(classes[best_idx])
-#         confidence = float(confidences[best_idx])
-
-#         exhibit = EXHIBIT_LABELS.get(class_id, 'unknown')
-
-#         logger.info(f"YOLO detected exhibit: {exhibit} with confidence {confidence:.3f}")
-
-#         return {
-#             'exhibit': exhibit,
-#             'confidence': confidence,
-#             'class_id': class_id,
-#             'all_detections': [
-#                 {
-#                     'exhibit': EXHIBIT_LABELS.get(int(cls), 'unknown'),
-#                     'confidence': float(conf),
-#                     'class_id': int(cls)
-#                 }
-#                 for cls, conf in zip(classes, confidences)
-#             ]
-#         }
-
-#     except Exception as e:
-#         logger.error(f"Error in YOLO exhibit detection: {str(e)}")
-#         return {'exhibit': 'unknown', 'confidence': 0.0, 'error': str(e)}
-
 def detect_exhibit_yolo(image):
-    """Detect exhibit using YOLO TFLite model"""
-    global yolo_interpreter, yolo_input_details, yolo_output_details
-
+    """Detect exhibit using YOLO model (.pt or .onnx via Ultralytics)"""
     try:
-        if yolo_interpreter is None:
-            logger.error("YOLO TFLite model not loaded")
+        if yolo_model is None:
+            logger.error("YOLO model not loaded")
             return {'exhibit': 'unknown', 'confidence': 0.0, 'error': 'YOLO model not loaded'}
 
-        # Preprocess image
-        img = cv2.resize(image, (320, 320))  # adjust input size to TFLite model
-        img = img[:, :, ::-1]                 # BGR → RGB
-        img = np.expand_dims(img.astype(np.float32) / 255.0, axis=0)
+        # Validate input
+        if image is None or not isinstance(image, np.ndarray):
+            return {'exhibit': 'unknown', 'confidence': 0.0, 'error': 'Invalid image input'}
 
-        # Set input tensor
-        yolo_interpreter.set_tensor(yolo_input_details[0]['index'], img)
-        yolo_interpreter.invoke()
+        # Run YOLO inference
+        results = yolo_model(image)[0]
 
-        # Get output
-        preds = yolo_interpreter.get_tensor(yolo_output_details[0]['index'])[0]  # shape: (num_detections, 85)
-
-        boxes, confidences, classes = [], [], []
-        for det in preds:
-            x0, y0, x1, y1 = det[:4]
-            conf = det[4]
-            cls = int(np.argmax(det[5:]))
-            if conf > 0.3:
-                boxes.append([x0, y0, x1, y1])
-                confidences.append(float(conf))
-                classes.append(cls)
-
-        if not classes:
+        if not hasattr(results, "boxes") or results.boxes is None or len(results.boxes.cls) == 0:
             return {'exhibit': 'unknown', 'confidence': 0.0}
 
-        best_idx = int(np.argmax(confidences))
-        class_id = classes[best_idx]
-        confidence = confidences[best_idx]
+        # Extract detections
+        confidences = results.boxes.conf.cpu().numpy()
+        classes = results.boxes.cls.cpu().numpy()
+
+        best_idx = np.argmax(confidences)
+        class_id = int(classes[best_idx])
+        confidence = float(confidences[best_idx])
+
         exhibit = EXHIBIT_LABELS.get(class_id, 'unknown')
+
+        logger.info(f"YOLO detected exhibit: {exhibit} with confidence {confidence:.3f}")
 
         return {
             'exhibit': exhibit,
@@ -366,16 +314,111 @@ def detect_exhibit_yolo(image):
             'class_id': class_id,
             'all_detections': [
                 {
-                    'exhibit': EXHIBIT_LABELS.get(c, 'unknown'),
-                    'confidence': conf,
-                    'class_id': c
-                } for c, conf in zip(classes, confidences)
+                    'exhibit': EXHIBIT_LABELS.get(int(cls), 'unknown'),
+                    'confidence': float(conf),
+                    'class_id': int(cls)
+                }
+                for cls, conf in zip(classes, confidences)
             ]
         }
 
     except Exception as e:
-        logger.error(f"Error in YOLO TFLite exhibit detection: {str(e)}")
+        logger.error(f"Error in YOLO exhibit detection: {str(e)}")
         return {'exhibit': 'unknown', 'confidence': 0.0, 'error': str(e)}
+
+# def detect_exhibit_yolo(image):
+#     """Detect exhibit using YOLO TFLite model"""
+#     global yolo_interpreter, yolo_input_details, yolo_output_details
+
+#     try:
+#         if yolo_interpreter is None:
+#             logger.error("YOLO TFLite model not loaded")
+#             return {'exhibit': 'unknown', 'confidence': 0.0, 'error': 'YOLO model not loaded'}
+        
+#         if isinstance(image, np.ndarray):
+#             image = Image.fromarray(cv2.cvtColor(image, cv2.COLOR_BGR2RGB))
+#         # Preprocess image
+#         if image.mode != 'RGB':
+#             image = image.convert('RGB')
+
+#         # Resize by shorter side to 256 while maintaining aspect ratio
+#         width, height = image.size
+#         if width < height:
+#             new_width = 256
+#             new_height = int(height * (256 / width))
+#         else:
+#             new_height = 256
+#             new_width = int(width * (256 / height))
+#         image = image.resize((new_width, new_height), Image.BILINEAR)
+
+#         # Center crop to 224×224
+#         left = (new_width - 224) // 2
+#         top = (new_height - 224) // 2
+#         image = image.crop((left, top, left + 224, top + 224))
+
+#         # Convert to NumPy array and normalize to [0, 1]
+#         img_array = np.array(image).astype(np.float32) / 255.0
+
+#         # Add batch dimension
+#         img_array = np.expand_dims(img_array, axis=0)
+
+#         # Set input tensor
+#         yolo_interpreter.set_tensor(yolo_input_details[0]['index'], img_array)
+#         yolo_interpreter.invoke()
+
+#         # Get output
+#         output_tensor = yolo_interpreter.get_tensor(yolo_output_details[0]['index'])  # shape: (1, num_classes)
+#         preds = output_tensor[0]  # shape: (num_classes,)
+
+#         # Sort predictions by confidence
+#         top_indices = np.argsort(preds)[-2:][::-1]
+#         top_predictions = [
+#             {
+#                 'exhibit': EXHIBIT_LABELS.get(i, 'unknown'),
+#                 'confidence': float(preds[i]),
+#                 'class_id': i
+#             }
+#             for i in top_indices
+#         ]
+
+#         # Confidence gap threshold
+#         AMBIGUITY_THRESHOLD = 0.05  # You can tune this
+
+#         gap = top_predictions[0]['confidence'] - top_predictions[1]['confidence']
+
+#         if gap < AMBIGUITY_THRESHOLD:
+#             # Ambiguous result
+#             return {
+#                 'exhibit': 'ambiguous',
+#                 'top_choices': top_predictions,
+#                 'confidence_gap': gap,
+#                 'all_predictions': [
+#                     {
+#                         'exhibit': EXHIBIT_LABELS.get(i, 'unknown'),
+#                         'confidence': float(score),
+#                         'class_id': i
+#                     } for i, score in enumerate(preds) if score > 0.3
+#                 ]
+#             }
+#         else:
+#             # Confident result
+#             return {
+#                 'exhibit': top_predictions[0]['exhibit'],
+#                 'confidence': top_predictions[0]['confidence'],
+#                 'class_id': top_predictions[0]['class_id'],
+#                 'all_predictions': [
+#                     {
+#                         'exhibit': EXHIBIT_LABELS.get(i, 'unknown'),
+#                         'confidence': float(score),
+#                         'class_id': i
+#                     } for i, score in enumerate(preds) if score > 0.3
+#                 ]
+#             }
+
+
+#     except Exception as e:
+#         logger.error(f"Error in YOLO TFLite exhibit detection: {str(e)}")
+#         return {'exhibit': 'unknown', 'confidence': 0.0, 'error': str(e)}
 
 
 
