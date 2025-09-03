@@ -116,19 +116,25 @@ def load_models():
         #     logger.info("YOLO TFLite model loaded successfully")
         # else:
         #     logger.warning(f"YOLO TFLite model not found at {yolo_model_path}")
-        yolo_model_path = os.path.join(os.path.dirname(__file__), "yolov8_model.onnx") 
-        if os.path.exists(yolo_model_path): 
-            yolo_model = YOLO(yolo_model_path) 
-            logger.info(f"YOLO model loaded successfully from {yolo_model_path}") 
-        else: logger.warning(f"YOLO model not found at {yolo_model_path}")
-        # Load Haar cascade for face detection
-        logger.info("Loading Haar cascade for face detection...")
-        cascade_path = os.path.join('asset', 'haarcascade_frontalface_default.xml')
-        if os.path.exists(cascade_path):
-            face_cascade = cv2.CascadeClassifier(cascade_path)
-            logger.info("Face detection cascade loaded successfully")
+        # yolo_model_path = os.path.join(os.path.dirname(__file__), "yolov8_model.onnx") 
+        # if os.path.exists(yolo_model_path): 
+        #     yolo_model = YOLO(yolo_model_path) 
+        #     logger.info(f"YOLO model loaded successfully from {yolo_model_path}") 
+        # else: logger.warning(f"YOLO model not found at {yolo_model_path}")
+        # # Load Haar cascade for face detection
+        # logger.info("Loading Haar cascade for face detection...")
+        # cascade_path = os.path.join('asset', 'haarcascade_frontalface_default.xml')
+        # if os.path.exists(cascade_path):
+        #     face_cascade = cv2.CascadeClassifier(cascade_path)
+        #     logger.info("Face detection cascade loaded successfully")
+        # else:
+        #     logger.warning(f"Haar cascade not found at {cascade_path}")
+        azure_prediction_key = os.getenv("AZURE_PREDICTION_KEY")
+        azure_prediction_url = os.getenv("AZURE_PREDICTION_URL")
+        if azure_prediction_key and azure_prediction_url:
+            logger.info("Azure Prediction API configured successfully")
         else:
-            logger.warning(f"Haar cascade not found at {cascade_path}")
+            logger.warning("Azure Prediction API credentials missing!")
             
         # Load local emotion model
         # logger.info("Loading local emotion model...")
@@ -178,10 +184,12 @@ def load_models():
                 logger.warning("⚠️ No Roboflow API key/workspace found")
                 roboflow_ready = False
         
-        globals()['yolo_model'] = yolo_model
+        # globals()['yolo_model'] = yolo_model
         globals()['face_cascade'] = face_cascade
         globals()['emotion_interpreter'] = emotion_interpreter
         globals()['roboflow_client'] = roboflow_client
+        globals()['azure_prediction_key'] = azure_prediction_key
+        globals()['azure_prediction_url'] = azure_prediction_url
         
     except Exception as e:
         logger.error(f"Error loading models: {str(e)}")
@@ -279,52 +287,102 @@ def decode_base64_image(base64_string):
 #     except Exception as e:
 #         logger.error(f"Error in YOLO exhibit detection: {str(e)}")
 #         return {'exhibit': 'unknown', 'confidence': 0.0, 'error': str(e)}
-def detect_exhibit_yolo(image):
-    """Detect exhibit using YOLO model (.pt or .onnx via Ultralytics)"""
-    try:
-        if yolo_model is None:
-            logger.error("YOLO model not loaded")
-            return {'exhibit': 'unknown', 'confidence': 0.0, 'error': 'YOLO model not loaded'}
+# def detect_exhibit_yolo(image):
+#     """Detect exhibit using YOLO model (.pt or .onnx via Ultralytics)"""
+#     try:
+#         if yolo_model is None:
+#             logger.error("YOLO model not loaded")
+#             return {'exhibit': 'unknown', 'confidence': 0.0, 'error': 'YOLO model not loaded'}
 
-        # Validate input
-        if image is None or not isinstance(image, np.ndarray):
+#         # Validate input
+#         if image is None or not isinstance(image, np.ndarray):
+#             return {'exhibit': 'unknown', 'confidence': 0.0, 'error': 'Invalid image input'}
+
+#         # Run YOLO inference
+#         results = yolo_model(image)[0]
+
+#         if not hasattr(results, "boxes") or results.boxes is None or len(results.boxes.cls) == 0:
+#             return {'exhibit': 'unknown', 'confidence': 0.0}
+
+#         # Extract detections
+#         confidences = results.boxes.conf.cpu().numpy()
+#         classes = results.boxes.cls.cpu().numpy()
+
+#         best_idx = np.argmax(confidences)
+#         class_id = int(classes[best_idx])
+#         confidence = float(confidences[best_idx])
+
+#         exhibit = EXHIBIT_LABELS.get(class_id, 'unknown')
+
+#         logger.info(f"YOLO detected exhibit: {exhibit} with confidence {confidence:.3f}")
+
+#         return {
+#             'exhibit': exhibit,
+#             'confidence': confidence,
+#             'class_id': class_id,
+#             'all_detections': [
+#                 {
+#                     'exhibit': EXHIBIT_LABELS.get(int(cls), 'unknown'),
+#                     'confidence': float(conf),
+#                     'class_id': int(cls)
+#                 }
+#                 for cls, conf in zip(classes, confidences)
+#             ]
+#         }
+
+#     except Exception as e:
+#         logger.error(f"Error in YOLO exhibit detection: {str(e)}")
+#         return {'exhibit': 'unknown', 'confidence': 0.0, 'error': str(e)}
+
+def detect_exhibit_yolo(image):
+    global azure_prediction_key, azure_prediction_url
+    """Detect exhibit using Azure Custom Vision Prediction API"""
+    try:
+        if not azure_prediction_key or not azure_prediction_url:
+            return {'exhibit': 'unknown', 'confidence': 0.0, 'error': 'Azure Prediction API not configured'}
+
+        # Handle both file path and numpy array
+        if isinstance(image, str):
+            with open(image, "rb") as img_file:
+                image_data = img_file.read()
+        elif isinstance(image, np.ndarray):
+            _, encoded_img = cv2.imencode(".jpg", image)
+            image_data = encoded_img.tobytes()
+        else:
             return {'exhibit': 'unknown', 'confidence': 0.0, 'error': 'Invalid image input'}
 
-        # Run YOLO inference
-        results = yolo_model(image)[0]
+        # Send to Azure API
+        headers = {
+            "Prediction-Key": azure_prediction_key,
+            "Content-Type": "application/octet-stream"
+        }
+        response = requests.post(azure_prediction_url, headers=headers, data=image_data)
 
-        if not hasattr(results, "boxes") or results.boxes is None or len(results.boxes.cls) == 0:
-            return {'exhibit': 'unknown', 'confidence': 0.0}
+        if response.status_code != 200:
+            return {'exhibit': 'unknown', 'confidence': 0.0, 'error': f"Azure error {response.status_code}: {response.text}"}
 
-        # Extract detections
-        confidences = results.boxes.conf.cpu().numpy()
-        classes = results.boxes.cls.cpu().numpy()
+        result = response.json()
 
-        best_idx = np.argmax(confidences)
-        class_id = int(classes[best_idx])
-        confidence = float(confidences[best_idx])
+        if "predictions" not in result or not result["predictions"]:
+            return {'exhibit': 'unknown', 'confidence': 0.0, 'error': 'No predictions returned'}
 
-        exhibit = EXHIBIT_LABELS.get(class_id, 'unknown')
-
-        logger.info(f"YOLO detected exhibit: {exhibit} with confidence {confidence:.3f}")
+        best = result["predictions"][0]
 
         return {
-            'exhibit': exhibit,
-            'confidence': confidence,
-            'class_id': class_id,
+            'exhibit': best['tagName'],
+            'confidence': best['probability'],
             'all_detections': [
                 {
-                    'exhibit': EXHIBIT_LABELS.get(int(cls), 'unknown'),
-                    'confidence': float(conf),
-                    'class_id': int(cls)
-                }
-                for cls, conf in zip(classes, confidences)
+                    'exhibit': p['tagName'],
+                    'confidence': p['probability']
+                } for p in result['predictions']
             ]
         }
 
     except Exception as e:
-        logger.error(f"Error in YOLO exhibit detection: {str(e)}")
+        logger.error(f"Error in Azure exhibit detection: {str(e)}")
         return {'exhibit': 'unknown', 'confidence': 0.0, 'error': str(e)}
+
 
 # def detect_exhibit_yolo(image):
 #     """Detect exhibit using YOLO TFLite model"""
