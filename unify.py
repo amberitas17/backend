@@ -195,6 +195,112 @@ def load_models():
         logger.error(f"Error loading models: {str(e)}")
         raise e
 
+def get_yolo_model():
+    global yolo_model
+    if yolo_model is None:
+        try:
+            yolo_model_path = os.path.join(os.path.dirname(__file__), "yolov8_model.onnx")
+            if os.path.exists(yolo_model_path):
+                yolo_model = YOLO(yolo_model_path)
+                logger.info(f"YOLO model loaded successfully from {yolo_model_path}")
+            else:
+                logger.warning(f"YOLO model not found at {yolo_model_path}")
+        except Exception as e:
+            logger.error(f"Error loading YOLO model: {e}")
+            raise e
+    return yolo_model
+
+
+def get_face_cascade():
+    global face_cascade
+    if face_cascade is None:
+        cascade_path = os.path.join("asset", "haarcascade_frontalface_default.xml")
+        if os.path.exists(cascade_path):
+            face_cascade = cv2.CascadeClassifier(cascade_path)
+            logger.info("Face detection cascade loaded successfully")
+        else:
+            logger.warning(f"Haar cascade not found at {cascade_path}")
+    return face_cascade
+
+
+def get_emotion_interpreter():
+    global emotion_interpreter, emotion_input_details, emotion_output_details
+    if emotion_interpreter is None:
+        try:
+            emotion_model_path = os.path.join(BASE_DIR, "asset", "emotion_model.tflite")
+            if os.path.exists(emotion_model_path):
+                emotion_interpreter = tf.lite.Interpreter(model_path=emotion_model_path)
+                emotion_interpreter.allocate_tensors()
+                emotion_input_details = emotion_interpreter.get_input_details()
+                emotion_output_details = emotion_interpreter.get_output_details()
+                logger.info("Local emotion TFLite model loaded successfully")
+            else:
+                logger.warning(f"Emotion model not found at {emotion_model_path}")
+        except Exception as e:
+            logger.error(f"Error loading emotion model: {e}")
+            raise e
+    return emotion_interpreter
+
+def get_roboflow_client(api_key, workspace):
+    global roboflow_client
+    if roboflow_client is None:
+        if api_key and workspace:
+            try:
+                roboflow_client = InferenceHTTPClient(
+                    api_url="https://serverless.roboflow.com",
+                    api_key=api_key
+                )
+                logger.info("✅ Roboflow client initialized")
+            except Exception as e:
+                logger.error(f"❌ Failed to init Roboflow: {e}")
+                roboflow_client = None
+        else:
+            logger.warning("⚠️ No Roboflow API key/workspace found")
+    return roboflow_client
+
+def run_pipeline(image, api_key, workspace):
+    # Step 1: Face detection
+    face_detector = get_face_cascade()
+    faces = face_detector.detectMultiScale(image, 1.3, 5)
+    if len(faces) == 0:
+        logger.info("No face detected")
+        return None
+
+    # Step 2: Age prediction (Roboflow)
+    rf_client = get_roboflow_client(api_key, workspace)
+    age_result = None
+    if rf_client:
+        try:
+            age_result = rf_client.infer(image, model_id="age-detection/1")
+        except Exception as e:
+            logger.error(f"Age prediction failed: {e}")
+
+    # Step 3: Emotion prediction (TFLite)
+    emotion_model = get_emotion_interpreter()
+    # TODO: preprocess cropped face and run through emotion_model
+    emotion = "happy"  # placeholder
+
+    logger.info(f"Age: {age_result}, Emotion: {emotion}")
+
+    # Step 4: Free memory before YOLO
+    cleanup_face_models()
+
+    # Step 5: YOLO inference
+    yolo = get_yolo_model()
+    results = yolo(image)   # ultralytics ONNX inference
+    return results
+
+def cleanup_face_models():
+    global emotion_interpreter, roboflow_client
+    if emotion_interpreter is not None:
+        emotion_interpreter = None
+    if roboflow_client is not None:
+        roboflow_client = None
+    logger.info("Released memory for face/age/emotion models")
+
+
+
+
 def decode_base64_image(base64_string):
     """Decode base64 image string to OpenCV format"""
     try:
@@ -1277,7 +1383,8 @@ def internal_error(error):
 
 if __name__ == '__main__':
     # Load models on startup
-    load_models()
+    # load_models()
+    run_pipeline()
     
     # Run the Flask app
     logger.info("Starting unified Flask API server on http://0.0.0.0:5002")
